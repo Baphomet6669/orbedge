@@ -10,8 +10,8 @@ app.url_map.strict_slashes = False
 app.secret_key = "PHANTOM_ULTRA_SECRET_KEY" # Session secure rakhne ke liye
 
 # --- ⚙️ CREDENTIALS SETTING ---
-ADMIN_USER = "shivam"
-ADMIN_PASS = "@nishka"
+ADMIN_USER = "media"
+ADMIN_PASS = "@rbitedge789"
 
 # --- 🛡️ SECURITY MIDDLEWARE ---
 @app.before_request
