@@ -2,36 +2,6 @@ from flask import Flask, render_template_string, request, redirect, session, url
 import os
 
 # --- Blueprints Import ---
-from script1 import script1_bp
-from script2 import script2_bp
-from script3 import script3_bp
-from script4 import script4_bp
-from script5 import script5_bp
-from script6 import script6_bp
-from script7 import script7_bp
-from script8 import script8_bp
-from script9 import script9_bp
-from script10 import script10_bp
-from script11 import script11_bp
-from script12 import script12_bp
-from script15 import script15_bp
-from script16 import script16_bp
-from script17 import script17_bp
-from script18 import script18_bp
-from script19 import script19_bp
-from script20 import script20_bp
-from script21 import script21_bp
-from script22 import script22_bp
-from script23 import script23_bp
-from script24 import script24_bp
-from script25 import script25_bp
-from script26 import script26_bp
-from script27 import script27_bp
-from script28 import script28_bp
-from script29 import script29_bp
-from script30 import script30_bp
-from script31 import script31_bp
-from script32 import script32_bp
 from script33 import script33_bp
 
 
@@ -112,36 +82,6 @@ def home():
         <a href="/logout" class="logout-link">[ TERMINATE_SESSION ]</a>
         <h1>[ SHIVAM SINGH OMEGA DASHBOARD ]</h1>
         <div style="display: flex; flex-wrap: wrap; justify-content: center;">
-            <a href="/script1/" class="btn">Open Analyzer</a>
-            <a href="/script2/" class="btn">Open Scraper</a>
-            <a href="/script3/" class="btn">EXE Converter</a>
-            <a href="/script4/" class="btn">DDoS Lab</a>
-            <a href="/script5/" class="btn">Ping Tool</a>
-            <a href="/script6/" class="btn">Video Call</a>
-            <a href="/script7/" class="btn">VoIP Call</a>
-            <a href="/script8/" class="btn">Phone OSINT</a>
-            <a href="/script9/" class="btn">Private Call</a>
-            <a href="/script10/" class="btn">Spy Cam</a>
-            <a href="/script11/" class="btn">Mail Spoofing</a>
-            <a href="/script12/" class="btn">Nmap Scanner</a>
-            <a href="/script15/" class="btn">Nu Attack</a>
-            <a href="/script16/" class="btn">Vehicle Info</a>
-            <a href="/script17/" class="btn">Message Vault</a>
-            <a href="/script18/" class="btn" style="border-width: 2px;">FILE VAULT (PRIVATE)</a>
-            <a href="/script19/" class="btn">Jarvis</a>
-            <a href="/script20/" class="btn">Information</a>
-            <a href="/script21/" class="btn">XSS</a>
-            <a href="/script22/" class="btn">Phone infonit</a>
-            <a href="/script23/" class="btn">Car Info</a>
-            <a href="/script24/" class="btn">Mail Spoof</a>
-            <a href="/script25/" class="btn">Mail Leak</a>
-            <a href="/script26/" class="btn">Mac Lookup</a>
-            <a href="/script27/" class="btn">Leads Finder</a>
-            <a href="/script28/" class="btn"> IMEI Finder</a>
-            <a href="/script29/" class="btn"> Ip Finder</a>
-            <a href="/script30/" class="btn"> ADB </a>
-            <a href="/script31/" class="btn"> Google Dorking </a>
-            <a href="/script32/" class="btn"> WhatsApp</a>
             <a href="/script33/" class="btn"> Seo Audit</a>
         </div>
     </body>
@@ -149,36 +89,6 @@ def home():
     """
 
 # --- Blueprints Register Karein ---
-app.register_blueprint(script1_bp, url_prefix='/script1')
-app.register_blueprint(script2_bp, url_prefix='/script2')
-app.register_blueprint(script3_bp, url_prefix='/script3')
-app.register_blueprint(script4_bp, url_prefix='/script4')
-app.register_blueprint(script5_bp, url_prefix='/script5')
-app.register_blueprint(script6_bp, url_prefix='/script6')
-app.register_blueprint(script7_bp, url_prefix='/script7')
-app.register_blueprint(script8_bp, url_prefix='/script8')
-app.register_blueprint(script9_bp, url_prefix='/script9')
-app.register_blueprint(script10_bp, url_prefix='/script10')
-app.register_blueprint(script11_bp, url_prefix='/script11')
-app.register_blueprint(script12_bp, url_prefix='/script12')
-app.register_blueprint(script15_bp, url_prefix='/script15')
-app.register_blueprint(script16_bp, url_prefix='/script16')
-app.register_blueprint(script17_bp, url_prefix='/script17')
-app.register_blueprint(script18_bp, url_prefix='/script18')
-app.register_blueprint(script19_bp, url_prefix='/script19')
-app.register_blueprint(script20_bp, url_prefix='/script20')
-app.register_blueprint(script21_bp, url_prefix='/script21')
-app.register_blueprint(script22_bp, url_prefix='/script22')
-app.register_blueprint(script23_bp, url_prefix='/script23')
-app.register_blueprint(script24_bp, url_prefix='/script24')
-app.register_blueprint(script25_bp, url_prefix='/script25')
-app.register_blueprint(script26_bp, url_prefix='/script26')
-app.register_blueprint(script27_bp, url_prefix='/script27')
-app.register_blueprint(script28_bp, url_prefix='/script28')
-app.register_blueprint(script29_bp, url_prefix='/script29')
-app.register_blueprint(script30_bp, url_prefix='/script30')
-app.register_blueprint(script31_bp, url_prefix='/script31')
-app.register_blueprint(script32_bp, url_prefix='/script32')
 app.register_blueprint(script33_bp, url_prefix='/script33')
 
 if __name__ == "__main__":
