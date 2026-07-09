@@ -1,0 +1,12 @@
+flask
+requests
+beautifulsoup4
+mysql-connector-python
+dnspython
+python-nmap
+cryptography
+google-generativeai
+gunicorn
+pandas
+openpyxl
+Pillow
