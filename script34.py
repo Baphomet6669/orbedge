@@ -28,8 +28,12 @@ def init_db():
                 {"id": 1, "name": "Rahul Sharma", "email": "rahul@example.com", "phone": "+919876543210", "company": "Sharma Tech", "status": "New", "value": 45000, "date": "2026-07-10"},
                 {"id": 2, "name": "Amit Verma", "email": "amit@example.com", "phone": "+918765432109", "company": "Verma Digital", "status": "Contacted", "value": 120000, "date": "2026-07-11"}
             ],
-            'customers': [],
-            'tasks': [],
+            'customers': [
+                {"id": 3, "name": "Priya Singh", "email": "priya@example.com", "phone": "+917654321098", "company": "Singh Org", "revenue": 150000, "joined_date": "2026-07-11"}
+            ],
+            'tasks': [
+                {"id": 1, "title": "Setup Marketing Automation Gateway", "due_date": "2026-07-15", "priority": "High", "status": "Pending"}
+            ],
             'automation_queue': []
         }
         with open(DATA_FILE, 'w') as f:
@@ -38,7 +42,10 @@ def init_db():
 def db_read():
     init_db()
     with open(DATA_FILE, 'r') as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except:
+            return { 'leads': [], 'customers': [], 'tasks': [], 'automation_queue': [] }
 
 def db_write(data):
     with open(DATA_FILE, 'w') as f:
@@ -83,17 +90,19 @@ def get_dashboard_stats():
     
     leads = db.get('leads', [])
     customers = db.get('customers', [])
+    tasks = db.get('tasks', [])
     
-    total_value = sum(float(l.get('value', 0)) for l in leads)
+    # Bug Fix: Direct type conversion to float/int to prevent zero-sums
+    total_value = sum(float(l.get('value', 0) or 0) for l in leads)
     leads_count = len(leads)
     avg_value = total_value / leads_count if leads_count > 0 else 0
-    total_revenue = sum(float(c.get('revenue', 0)) for c in customers)
-    high_value_leads_count = len([l for l in leads if float(l.get('value', 0)) >= 100000])
+    total_revenue = sum(float(c.get('revenue', 0) or 0) for c in customers)
+    high_value_leads_count = len([l for l in leads if float(l.get('value', 0) or 0) >= 100000])
     
     stats = {
         'total_leads': leads_count,
         'total_customers': len(customers),
-        'pending_tasks': len([t for t in db.get('tasks', []) if t.get('status') != 'Completed']),
+        'pending_tasks': len([t for t in tasks if t.get('status') != 'Completed']),
         'total_pipeline_value': total_value,
         'average_deal_size': avg_value,
         'total_queued_messages': len(db.get('automation_queue', [])),
@@ -123,7 +132,7 @@ def save_lead():
         'phone': request.form.get('phone', ''),
         'company': request.form.get('company', ''),
         'status': request.form.get('status', 'New'),
-        'value': float(request.form.get('value', 0)),
+        'value': float(request.form.get('value', 0) or 0),
         'date': request.form.get('date') if lead_id else time.strftime('%Y-%m-%d')
     }
 
@@ -167,7 +176,7 @@ def convert_to_customer():
             'email': target_lead['email'],
             'phone': target_lead['phone'],
             'company': target_lead['company'],
-            'revenue': target_lead['value'],
+            'revenue': float(target_lead.get('value', 0) or 0), # Bug Fix: Float type revenue transfer
             'joined_date': time.strftime('%Y-%m-%d')
         })
         db_write(db)
@@ -250,7 +259,6 @@ def process_lead_automation():
     imported_count = 0
     for lead in db.get('leads', []):
         if str(lead['id']) in selected_ids:
-            # Dynamically injection of lead name into [Name] placeholder
             custom_message = message_template.replace('[Name]', lead['name'])
             
             db['automation_queue'].append({
@@ -735,7 +743,7 @@ HTML_LAYOUT = """
                 icon.className = "fa-solid fa-moon";
                 localStorage.setItem('theme', 'light');
             }
-            if (pipelineChartInstance) loadDashboardEngine(); 
+            if (activeTab === 'dashboard') loadDashboardEngine(); 
             if (activeTab === 'reports') loadReportsEngine();
         }
 
@@ -757,17 +765,21 @@ HTML_LAYOUT = """
 
         async function loadDashboardEngine() {
             let stats = await fetchAPI('get_dashboard_stats');
-            document.getElementById('stat-leads').innerText = stats.total_leads;
-            document.getElementById('stat-customers').innerText = stats.total_customers;
-            document.getElementById('stat-tasks').innerText = stats.pending_tasks;
-            document.getElementById('stat-queued-messages').innerText = stats.total_queued_messages;
-            document.getElementById('stat-pipeline-value').innerText = '₹' + parseFloat(stats.total_pipeline_value).toLocaleString('en-IN');
-            document.getElementById('stat-avg-deal').innerText = '₹' + parseFloat(stats.average_deal_size).toLocaleString('en-IN', {maximumFractionDigits: 0});
-            document.getElementById('stat-revenue-pool').innerText = '₹' + parseFloat(stats.total_revenue_pool).toLocaleString('en-IN', {maximumFractionDigits: 0});
+            if(!stats) return;
+
+            // Bug Fix: Assigning correct DOM updates safely
+            document.getElementById('stat-leads').innerText = stats.total_leads || 0;
+            document.getElementById('stat-customers').innerText = stats.total_customers || 0;
+            document.getElementById('stat-tasks').innerText = stats.pending_tasks || 0;
+            document.getElementById('stat-queued-messages').innerText = stats.total_queued_messages || 0;
+            document.getElementById('stat-pipeline-value').innerText = '₹' + parseFloat(stats.total_pipeline_value || 0).toLocaleString('en-IN');
+            document.getElementById('stat-avg-deal').innerText = '₹' + parseFloat(stats.average_deal_size || 0).toLocaleString('en-IN', {maximumFractionDigits: 0});
+            document.getElementById('stat-revenue-pool').innerText = '₹' + parseFloat(stats.total_revenue_pool || 0).toLocaleString('en-IN', {maximumFractionDigits: 0});
             
             let actList = document.getElementById('recent-activity-list');
             actList.innerHTML = '';
-            if(stats.recent_activity.length === 0) {
+            
+            if(!stats.recent_activity || stats.recent_activity.length === 0) {
                 actList.innerHTML = `<p class="text-xs text-gray-500 text-center py-6">No recent logs.</p>`;
             } else {
                 stats.recent_activity.forEach(act => {
@@ -778,20 +790,26 @@ HTML_LAYOUT = """
                     </div>`;
                 });
             }
-            renderPipelineGraph(stats.lead_status_counts);
+            
+            // Bug Fix: Trigger Chart rendering after data population handles safely
+            setTimeout(() => {
+                renderPipelineGraph(stats.lead_status_counts);
+            }, 50);
         }
 
         function renderPipelineGraph(counts) {
-            let ctx = document.getElementById('dashboardPipelineChart').getContext('2d');
+            let chartEl = document.getElementById('dashboardPipelineChart');
+            if(!chartEl) return;
+            let ctx = chartEl.getContext('2d');
             if (pipelineChartInstance) pipelineChartInstance.destroy();
             let isDark = document.body.classList.contains('dark-mode');
             
             pipelineChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: Object.keys(counts),
+                    labels: Object.keys(counts || {}),
                     datasets: [{
-                        data: Object.values(counts),
+                        data: Object.values(counts || {}),
                         backgroundColor: ['#6366f1', '#3b82f6', '#10b981', '#f43f5e'],
                         borderRadius: 6
                     }]
@@ -809,7 +827,7 @@ HTML_LAYOUT = """
         }
 
         async function loadLeadsEngine() {
-            rawLeads = await fetchAPI('get_leads');
+            rawLeads = await fetchAPI('get_leads') || [];
             renderLeadsTable();
         }
 
@@ -824,8 +842,8 @@ HTML_LAYOUT = """
                 let mq = l.name.toLowerCase().includes(query) || l.company.toLowerCase().includes(query);
                 let mf = filter === 'All' || l.status === filter;
                 let mv = true;
-                if(valueTierFilter === 'High') mv = parseFloat(l.value) >= 100000;
-                if(valueTierFilter === 'Mid') mv = parseFloat(l.value) < 100000;
+                if(valueTierFilter === 'High') mv = parseFloat(l.value || 0) >= 100000;
+                if(valueTierFilter === 'Mid') mv = parseFloat(l.value || 0) < 100000;
                 return mq && mf && mv;
             });
 
@@ -835,11 +853,11 @@ HTML_LAYOUT = """
             }
 
             targetList.forEach(l => {
-                let isVip = parseFloat(l.value) >= 100000;
+                let isVip = parseFloat(l.value || 0) >= 100000;
                 tbody.innerHTML += `
                 <tr class="hover:bg-gray-500/5 transition">
                     <td class="p-4 font-semibold text-custom-main"><div class="text-xs font-bold">${l.name}</div><div class="text-[11px] text-custom-muted mt-0.5">${l.email} | ${l.phone}</div></td>
-                    <td class="p-4 font-bold text-indigo-500">₹${parseFloat(l.value).toLocaleString('en-IN')}</td>
+                    <td class="p-4 font-bold text-indigo-500">₹${parseFloat(l.value || 0).toLocaleString('en-IN')}</td>
                     <td class="p-4"><span class="text-[10px] px-2 py-0.5 rounded-lg ${isVip?'bg-amber-500/10 text-amber-500':'bg-gray-500/10 text-custom-muted'}">${isVip?'💎 VIP':'Standard'}</span></td>
                     <td class="p-4"><span class="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-indigo-500/10 text-indigo-600">${l.status}</span></td>
                     <td class="p-4 text-[11px] text-custom-muted">${l.date}</td>
@@ -891,7 +909,7 @@ HTML_LAYOUT = """
             fd.append('date', document.getElementById('lead_date').value);
 
             let res = await fetchAPI('save_lead', fd);
-            if(res.success) { closeLeadModal(); popToast("Database Registry Updated!"); loadLeadsEngine(); }
+            if(res && res.success) { closeLeadModal(); popToast("Database Registry Updated!"); loadLeadsEngine(); }
         }
 
         async function deleteLead(id) {
@@ -905,11 +923,11 @@ HTML_LAYOUT = """
         async function convertLead(id) {
             let fd = new FormData(); fd.append('id', id);
             let res = await fetchAPI('convert_to_customer', fd);
-            if(res.success) { popToast("Converted to Customer!"); loadLeadsEngine(); }
+            if(res && res.success) { popToast("Converted to Customer!"); loadLeadsEngine(); }
         }
 
         async function loadCustomersEngine() {
-            rawCustomers = await fetchAPI('get_customers');
+            rawCustomers = await fetchAPI('get_customers') || [];
             let tbody = document.getElementById('customers-table-body');
             tbody.innerHTML = '';
             if(rawCustomers.length === 0) {
@@ -921,18 +939,16 @@ HTML_LAYOUT = """
                 <tr class="hover:bg-gray-500/5 transition">
                     <td class="p-4 font-bold text-custom-main">${c.name}</td><td class="p-4 text-custom-muted">${c.company || 'N/A'}</td>
                     <td class="p-4 text-[11px] text-indigo-600">${c.email} <br> ${c.phone}</td>
-                    <td class="p-4 font-extrabold text-emerald-500">₹${parseFloat(c.revenue).toLocaleString('en-IN')}</td>
+                    <td class="p-4 font-extrabold text-emerald-500">₹${parseFloat(c.revenue || 0).toLocaleString('en-IN')}</td>
                     <td class="p-4 text-[11px] text-custom-muted">${c.joined_date}</td>
                 </tr>`;
             });
         }
 
-        // AUTOMATION LAYER INTEGRATION
         async function loadAutomationEngine() {
-            rawAutomation = await fetchAPI('get_automation_queue');
-            rawLeads = await fetchAPI('get_leads'); // Fetch current leads to render dynamic selector checkbox block
+            rawAutomation = await fetchAPI('get_automation_queue') || [];
+            rawLeads = await fetchAPI('get_leads') || []; 
             
-            // Render Live CRM selection inside Automation Controls
             let injectorList = document.getElementById('automation-leads-injector-list');
             injectorList.innerHTML = '';
             if(rawLeads.length === 0) {
@@ -985,7 +1001,7 @@ HTML_LAYOUT = """
             fd.append('message', template);
             
             let res = await fetchAPI('process_lead_automation', fd);
-            if(res.success) { popToast(res.message); loadAutomationEngine(); }
+            if(res && res.success) { popToast(res.message); loadAutomationEngine(); }
         }
 
         async function handleSheetUpload(e) {
@@ -994,17 +1010,17 @@ HTML_LAYOUT = """
             if (fileInput.files.length === 0) return;
             let fd = new FormData(); fd.append('automation_file', fileInput.files[0]);
             let res = await fetchAPI('upload_automation_sheet', fd);
-            if (res.success) { popToast(res.message); document.getElementById('automation-upload-form').reset(); loadAutomationEngine(); }
+            if (res && res.success) { popToast(res.message); document.getElementById('automation-upload-form').reset(); loadAutomationEngine(); }
         }
 
         async function clearAutomationLogs() {
             if(!confirm("Flush records?")) return;
             let res = await fetchAPI('clear_automation_queue');
-            if (res.success) { popToast("Queue reset."); loadAutomationEngine(); }
+            if (res && res.success) { popToast("Queue reset."); loadAutomationEngine(); }
         }
 
         async function loadTasksEngine() {
-            rawTasks = await fetchAPI('get_tasks');
+            rawTasks = await fetchAPI('get_tasks') || [];
             let container = document.getElementById('tasks-list'); container.innerHTML = '';
             if(rawTasks.length === 0) {
                 container.innerHTML = `<p class="text-xs text-gray-500 text-center py-4">No pending objectives.</p>`; return;
@@ -1036,6 +1052,7 @@ HTML_LAYOUT = """
 
         async function loadReportsEngine() {
             let stats = await fetchAPI('get_dashboard_stats');
+            if(!stats) return;
             let ctxPie = document.getElementById('reportPieChart').getContext('2d');
             let ctxDoughnut = document.getElementById('reportDoughnutChart').getContext('2d');
 
@@ -1047,13 +1064,13 @@ HTML_LAYOUT = """
 
             reportPieChartInstance = new Chart(ctxPie, {
                 type: 'pie',
-                data: { labels: Object.keys(stats.lead_status_counts), datasets: [{ data: Object.values(stats.lead_status_counts), backgroundColor: ['#6366f1', '#3b82f6', '#10b981', '#f43f5e'] }] },
+                data: { labels: Object.keys(stats.lead_status_counts || {}), datasets: [{ data: Object.values(stats.lead_status_counts || {}), backgroundColor: ['#6366f1', '#3b82f6', '#10b981', '#f43f5e'] }] },
                 options: chartOptions
             });
 
             reportDoughnutChartInstance = new Chart(ctxDoughnut, {
                 type: 'doughnut',
-                data: { labels: ['Leads', 'Clients'], datasets: [{ data: [stats.total_leads, stats.total_customers], backgroundColor: ['#6366f1', '#10b981'] }] },
+                data: { labels: ['Leads', 'Clients'], datasets: [{ data: [stats.total_leads || 0, stats.total_customers || 0], backgroundColor: ['#6366f1', '#10b981'] }] },
                 options: chartOptions
             });
         }
@@ -1075,7 +1092,5 @@ HTML_LAYOUT = """
 # APPLICATION GATEWAY INITIALIZATION RUNNER
 # =========================================================================
 if __name__ == '__main__':
-    # Initialize core datastore files upon engine launching sequence
     init_db()
     app.run(debug=True, port=5000)
-
