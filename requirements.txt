@@ -10,4 +10,3 @@ gunicorn
 pandas
 openpyxl
 Pillow
-matplotlib
