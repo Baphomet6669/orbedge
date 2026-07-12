@@ -92,7 +92,6 @@ def get_dashboard_stats():
     customers = db.get('customers', [])
     tasks = db.get('tasks', [])
     
-    # Bug Fix: Direct type conversion to float/int to prevent zero-sums
     total_value = sum(float(l.get('value', 0) or 0) for l in leads)
     leads_count = len(leads)
     avg_value = total_value / leads_count if leads_count > 0 else 0
@@ -176,7 +175,7 @@ def convert_to_customer():
             'email': target_lead['email'],
             'phone': target_lead['phone'],
             'company': target_lead['company'],
-            'revenue': float(target_lead.get('value', 0) or 0), # Bug Fix: Float type revenue transfer
+            'revenue': float(target_lead.get('value', 0) or 0),
             'joined_date': time.strftime('%Y-%m-%d')
         })
         db_write(db)
@@ -274,6 +273,9 @@ def process_lead_automation():
     db_write(db)
     return jsonify({'success': True, 'message': f'Successfully deployed {imported_count} leads to broadcast engine.'})
 
+# =========================================================================
+# INTERLINKED CSV WORKFLOW UPLOADER
+# =========================================================================
 @script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
@@ -297,6 +299,15 @@ def upload_automation_sheet():
             email = row[2] if len(row) > 2 else ''
             message = row[3] if len(row) > 3 else 'Hello, this is an automated broadcast alert.'
             
+            # Optional extra columns for custom lead details or safe fallbacks
+            company = row[4] if len(row) > 4 and row[4] else 'Bulk Ingested Corp'
+            status = row[5] if len(row) > 5 and row[5] else 'New'
+            try:
+                value = float(row[6]) if len(row) > 6 else 65000.0
+            except:
+                value = 65000.0
+
+            # 1. Add to Broadcast System Queue
             db['automation_queue'].append({
                 'id': f"{int(time.time())}_{random.randint(100, 999)}",
                 'phone': phone,
@@ -305,10 +316,22 @@ def upload_automation_sheet():
                 'message': message,
                 'timestamp': time.strftime('%Y-%m-%d %H:%M')
             })
+
+            # 2. INTERLINK DATA TO SALES PIPELINE & LEADS
+            db['leads'].append({
+                'id': int(time.time() * 1000) + random.randint(1, 999),
+                'name': name,
+                'email': email,
+                'phone': phone,
+                'company': company,
+                'status': status,
+                'value': value,
+                'date': time.strftime('%Y-%m-%d')
+            })
             imported_count += 1
             
         db_write(db)
-        return jsonify({'success': True, 'message': f'Successfully processed {imported_count} workflow contacts.'})
+        return jsonify({'success': True, 'message': f'Successfully parsed {imported_count} contacts & perfectly linked into Pipeline system!'})
         
     return jsonify({'success': False, 'message': 'Invalid file layout format.'})
 
@@ -388,11 +411,22 @@ HTML_LAYOUT = """
         </div>
     </div>
 {% else %}
-    <div class="min-h-screen flex flex-col md:flex-row">
+    <!-- MOBILE TOP HEADER (BAR) -->
+    <div class="md:hidden bg-gray-950 text-white flex items-center justify-between p-4 border-b border-gray-900 sticky top-0 z-50">
+        <div class="flex items-center gap-2">
+            <div class="p-2 bg-indigo-600 rounded-lg"><i class="fa-solid fa-bolt text-sm text-white"></i></div>
+            <span class="font-bold text-sm tracking-wide">OrbitEdge</span>
+        </div>
+        <button onclick="toggleMobileSidebar()" class="text-white text-xl focus:outline-none p-1">
+            <i id="mobile-menu-icon" class="fa-solid fa-bars"></i>
+        </button>
+    </div>
+
+    <div class="min-h-screen flex flex-col md:flex-row relative">
         
         <!-- SIDEBAR -->
-        <aside class="w-full md:w-64 bg-gray-950 text-white flex flex-col border-r border-gray-900">
-            <div class="p-6 border-b border-gray-900 flex items-center gap-3">
+        <aside id="sidebar-container" class="hidden md:flex fixed md:sticky top-[53px] md:top-0 left-0 bottom-0 w-full md:w-64 bg-gray-950 text-white flex-col border-r border-gray-900 z-40 transition-all duration-300 overflow-y-auto">
+            <div class="p-6 border-b border-gray-900 hidden md:flex items-center gap-3">
                 <div class="p-2.5 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-xl"><i class="fa-solid fa-bolt text-lg text-white"></i></div>
                 <div>
                     <h2 class="font-bold text-base tracking-wide leading-none text-white">OrbitEdge</h2>
@@ -416,7 +450,7 @@ HTML_LAYOUT = """
         </aside>
 
         <!-- MAIN CONTAINER -->
-        <main class="flex-1 p-6 md:p-8 overflow-y-auto max-h-screen">
+        <main class="flex-1 p-4 md:p-8 overflow-y-auto max-h-screen w-full">
             
             <!-- Toast Box -->
             <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 bg-gray-900 border border-emerald-500/30 text-white px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 transition-all duration-300">
@@ -430,6 +464,7 @@ HTML_LAYOUT = """
                     <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
                 </div>
                 
+                <!-- SCROLLABLE GRID METRICS ROW FOR ALL DEVICE WIDTHS -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-indigo-500/10 text-indigo-600 rounded-xl"><i class="fa-solid fa-bolt text-lg"></i></div>
@@ -477,7 +512,7 @@ HTML_LAYOUT = """
             <div id="tab-leads" class="tab-content hidden space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                     <div><h1 class="text-2xl font-bold text-custom-main">Sales Funnel Pipeline</h1><p class="text-sm text-custom-muted">Track and optimize incoming inquiries.</p></div>
-                    <div class="flex gap-2.5">
+                    <div class="flex flex-wrap gap-2.5">
                         <button onclick="exportLeadsToCSV()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
                         <button onclick="openLeadModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md"><i class="fa-solid fa-plus"></i> New Lead</button>
                     </div>
@@ -533,7 +568,7 @@ HTML_LAYOUT = """
                         <h1 class="text-2xl font-bold text-custom-main">Bulk Marketing & Message Automation</h1>
                         <p class="text-sm text-custom-muted">Select live CRM leads or ingest spreadsheets to dispatch workflows.</p>
                     </div>
-                    <button onclick="clearAutomationLogs()" class="bg-rose-600/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500/20 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-2">
+                    <button onclick="clearAutomationLogs()" class="bg-rose-600/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500/20 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-2 self-start sm:self-center">
                         <i class="fa-solid fa-trash-can"></i> Clear Broadcast Records
                     </button>
                 </div>
@@ -562,14 +597,14 @@ HTML_LAYOUT = """
                         </div>
 
                         <div class="border-t border-custom pt-4">
-                            <h4 class="text-xs font-bold text-custom-main mb-2"><i class="fa-solid fa-file-excel text-emerald-500"></i> Option B: External CSV Ingest</h4>
+                            <h4 class="text-xs font-bold text-custom-main mb-2"><i class="fa-solid fa-file-excel text-emerald-500"></i> Option B: External CSV Ingest (Interlinked)</h4>
                             <form id="automation-upload-form" onsubmit="handleSheetUpload(event)" class="space-y-3">
                                 <div class="border border-dashed border-custom rounded-xl p-4 text-center relative bg-gray-500/5 cursor-pointer">
                                     <input type="file" id="automation_file" name="automation_file" accept=".csv" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
                                     <p class="text-[11px] text-custom-muted">Click to browse sheet document (.csv)</p>
                                 </div>
                                 <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl text-xs cursor-pointer transition shadow-sm">
-                                    <i class="fa-solid fa-cloud-arrow-up"></i> Upload & Process Sheet
+                                    <i class="fa-solid fa-cloud-arrow-up"></i> Upload & Sync to Pipeline
                                 </button>
                             </form>
                         </div>
@@ -707,6 +742,21 @@ HTML_LAYOUT = """
             return path + '/';
         }
 
+        // Responsive Sidebar Drawer for Devices Toggle Controls
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('sidebar-container');
+            const icon = document.getElementById('mobile-menu-icon');
+            if(sidebar.classList.contains('hidden')) {
+                sidebar.classList.remove('hidden');
+                sidebar.classList.add('flex');
+                icon.className = "fa-solid fa-xmark";
+            } else {
+                sidebar.classList.remove('flex');
+                sidebar.classList.add('hidden');
+                icon.className = "fa-solid fa-bars";
+            }
+        }
+
         async function fetchAPI(endpoint, postData = null) {
             try {
                 let options = postData ? { method: 'POST', body: postData } : { method: 'GET' };
@@ -759,6 +809,14 @@ HTML_LAYOUT = """
             document.getElementById(`tab-${target}`).classList.remove('hidden');
             document.getElementById(`btn-${target}`).classList.add('active');
 
+            // Close sidebar on mobile item selection
+            if(window.innerWidth < 768) {
+                const sidebar = document.getElementById('sidebar-container');
+                sidebar.classList.remove('flex');
+                sidebar.classList.add('hidden');
+                document.getElementById('mobile-menu-icon').className = "fa-solid fa-bars";
+            }
+
             if (target === 'dashboard') loadDashboardEngine();
             if (target === 'leads') loadLeadsEngine();
             if (target === 'customers') loadCustomersEngine();
@@ -771,7 +829,6 @@ HTML_LAYOUT = """
             let stats = await fetchAPI('get_dashboard_stats');
             if(!stats) return;
 
-            // Bug Fix: Assigning correct DOM updates safely
             document.getElementById('stat-leads').innerText = stats.total_leads || 0;
             document.getElementById('stat-customers').innerText = stats.total_customers || 0;
             document.getElementById('stat-tasks').innerText = stats.pending_tasks || 0;
@@ -788,14 +845,13 @@ HTML_LAYOUT = """
             } else {
                 stats.recent_activity.forEach(act => {
                     actList.innerHTML += `
-                    <div class="flex items-center justify-between p-3 bg-gray-500/5 rounded-xl border border-custom">
-                        <div><p class="text-xs font-bold text-custom-main">${act.name}</p><span class="text-[10px] text-custom-muted">${act.company || 'Individual'}</span></div>
-                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500">${act.status}</span>
+                    <div class="flex items-center justify-between p-3 bg-gray-500/5 rounded-xl border border-custom gap-2">
+                        <div class="truncate"><p class="text-xs font-bold text-custom-main truncate">${act.name}</p><span class="text-[10px] text-custom-muted truncate block">${act.company || 'Individual'}</span></div>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 shrink-0">${act.status}</span>
                     </div>`;
                 });
             }
             
-            // Bug Fix: Trigger Chart rendering after data population handles safely
             setTimeout(() => {
                 renderPipelineGraph(stats.lead_status_counts);
             }, 50);
@@ -1011,10 +1067,16 @@ HTML_LAYOUT = """
         async function handleSheetUpload(e) {
             e.preventDefault();
             let fileInput = document.getElementById('automation_file');
-            if (fileInput.files.length === 0) return;
+            if (fileInput.files.length === 0) return alert("Please select a file first!");
             let fd = new FormData(); fd.append('automation_file', fileInput.files[0]);
             let res = await fetchAPI('upload_automation_sheet', fd);
-            if (res && res.success) { popToast(res.message); document.getElementById('automation-upload-form').reset(); loadAutomationEngine(); }
+            if (res && res.success) { 
+                popToast(res.message); 
+                document.getElementById('automation-upload-form').reset(); 
+                loadAutomationEngine(); 
+            } else {
+                alert(res.message || "Upload failed.");
+            }
         }
 
         async function clearAutomationLogs() {
