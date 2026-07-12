@@ -430,7 +430,7 @@ HTML_LAYOUT = """
                     <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
                 </div>
                 
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-indigo-500/10 text-indigo-600 rounded-xl"><i class="fa-solid fa-bolt text-lg"></i></div>
                         <div><p class="text-[10px] font-bold uppercase text-custom-muted">Leads</p><h3 id="stat-leads" class="text-xl font-extrabold text-custom-main">0</h3></div>
@@ -438,6 +438,10 @@ HTML_LAYOUT = """
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-emerald-500/10 text-emerald-600 rounded-xl"><i class="fa-solid fa-wallet text-lg"></i></div>
                         <div><p class="text-[10px] font-bold uppercase text-custom-muted">Clients</p><h3 id="stat-customers" class="text-xl font-extrabold text-custom-main">0</h3></div>
+                    </div>
+                    <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
+                        <div class="p-2.5 bg-amber-500/10 text-amber-600 rounded-xl"><i class="fa-solid fa-list-check text-lg"></i></div>
+                        <div><p class="text-[10px] font-bold uppercase text-custom-muted">Tasks</p><h3 id="stat-tasks" class="text-xl font-extrabold text-custom-main">0</h3></div>
                     </div>
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-blue-500/10 text-blue-600 rounded-xl"><i class="fa-solid fa-chart-line text-lg"></i></div>
@@ -1094,3 +1098,4 @@ HTML_LAYOUT = """
 if __name__ == '__main__':
     init_db()
     app.run(debug=True, port=5000)
+
