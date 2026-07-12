@@ -10,3 +10,5 @@ gunicorn
 pandas
 openpyxl
 Pillow
+matplotlib
+python-dotenv
