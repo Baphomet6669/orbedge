@@ -4,6 +4,7 @@ import os
 # --- Blueprints Import ---
 from script33 import script33_bp
 from script34 import script34_bp
+from script35 import script35_bp
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
@@ -84,6 +85,7 @@ def home():
         <div style="display: flex; flex-wrap: wrap; justify-content: center;">
             <a href="/script33/" class="btn"> Seo Audit</a>
             <a href="/script34/" class="btn"> Crm</a>
+            <a href="/script35/" class="btn"> Social Media Finder</a>
         </div>
     </body>
     </html>
@@ -92,6 +94,7 @@ def home():
 # --- Blueprints Register Karein ---
 app.register_blueprint(script33_bp, url_prefix='/script33')
 app.register_blueprint(script34_bp, url_prefix='/script34')
+app.register_blueprint(script35_bp, url_prefix='/script35')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
