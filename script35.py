@@ -1,31 +1,21 @@
 import os
-import sys
-import json
-import time
-import random
 import threading
 import concurrent.futures
 import requests
 import matplotlib
-# Background server render optimization ke liye mandatory headless backend
+# Headless system optimization for Render container execution
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
-from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for
+from flask import Blueprint, render_template_string, request, jsonify
 
-# =========================================================================
-# INITIALIZE FLASK CORE & BLUEPRINT STRUCTURE
-# =========================================================================
-app = Flask(__name__)
-app.secret_key = os.urandom(24)
+# 1. DEFINE THE BLUEPRINT THAT APP.PY IS EXPECTING
+script35_bp = Blueprint('script35', __name__, static_folder='static')
 
-# Render Memory Sync Guarantee (Dashboard name reads directly from Environment variables)
-COMPANY_NAME = os.environ.get('COMPANY_NAME', 'TDCS Technologies')
-
+COMPANY_NAME = os.environ.get('COMPANY_NAME', 'Enterprise Solutions')
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-# Advanced Target Matrix (Global & Regional Coverage Mapping)
 TARGET_SITES = {
     "Instagram": "https://www.instagram.com/{}",
     "Twitter/X": "https://twitter.com/{}",
@@ -48,9 +38,6 @@ TARGET_SITES = {
 
 results_lock = threading.Lock()
 
-# =========================================================================
-# ASYNC OSINT INTELLIGENCE RECON ENGINE
-# =========================================================================
 def check_platform(platform, url_template, username, found, missing, errors):
     url = url_template.format(username)
     try:
@@ -70,25 +57,24 @@ def generate_analytics_chart(username, found_count, missing_count, error_count):
     colors = ['#6366f1', '#f43f5e', '#9ca3af']
     
     plt.figure(figsize=(6, 4))
-    # Render safety layout setup
-    plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140, textprops={'color': 'white' if os.environ.get('THEME')=='dark' else 'black'})
+    plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140)
     
-    if not os.path.exists('static'):
-        os.makedirs('static')
+    # Render static path architecture security
+    static_dir = os.path.join(os.path.dirname(__file__), 'static')
+    if not os.path.exists(static_dir):
+        os.makedirs(static_dir)
         
-    graph_path = f"static/{username}_intel_report.png"
+    graph_path = os.path.join(static_dir, f"{username}_intel_report.png")
     plt.savefig(graph_path, dpi=150, bbox_inches='tight', transparent=True)
     plt.close()
-    return graph_path
+    return f"static/{username}_intel_report.png"
 
-# =========================================================================
-# FLASK INTERACTIVE ROUTES
-# =========================================================================
-@app.route('/')
+# 2. ASSIGN PATH ROUTING TO THE BLUEPRINT STRATEGY
+@script35_bp.route('/')
 def index():
     return render_template_string(HTML_LAYOUT, company=COMPANY_NAME)
 
-@app.route('/api/audit', methods=['GET'])
+@script35_bp.route('/api/audit', methods=['GET'])
 def api_audit():
     username = request.args.get('username', '').strip()
     if not username:
@@ -98,7 +84,6 @@ def api_audit():
     missing = {}
     errors = {}
 
-    # Multi-threaded execution strategy for parallel pipeline execution
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
         futures = [executor.submit(check_platform, plat, tmpl, username, found, missing, errors) for plat, tmpl in TARGET_SITES.items()]
         concurrent.futures.wait(futures)
@@ -114,9 +99,7 @@ def api_audit():
         'chart_url': chart_url
     })
 
-# =========================================================================
-# SYSTEM UI LAYOUT SCHEMATICS (SCRIPT34 DASHBOARD UI INHERITANCE)
-# =========================================================================
+# SYSTEM UI LAYOUT SCHEMATICS
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
@@ -154,7 +137,6 @@ HTML_LAYOUT = """
 <body class="light-mode antialiased selection:bg-indigo-500 selection:text-white">
 
     <div class="min-h-screen flex flex-col md:flex-row">
-        <!-- SIDEBAR CONTAINER -->
         <aside class="w-full md:w-64 bg-gray-950 text-white flex flex-col border-r border-gray-900">
             <div class="p-6 border-b border-gray-900 flex items-center gap-3">
                 <div class="p-2.5 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-xl"><i class="fa-solid fa-satellite-dish text-lg text-white"></i></div>
@@ -173,7 +155,6 @@ HTML_LAYOUT = """
             </div>
         </aside>
 
-        <!-- MAIN MONITORING ECOSYSTEM -->
         <main class="flex-1 p-6 md:p-8 overflow-y-auto max-h-screen">
             <div class="flex justify-between items-center border-b border-custom pb-5 mb-6">
                 <div>
@@ -183,11 +164,10 @@ HTML_LAYOUT = """
                 <span class="text-[10px] font-mono font-bold bg-indigo-500/10 text-indigo-500 px-2 py-1 rounded border border-indigo-500/20">Active Node</span>
             </div>
 
-            <!-- SEARCH SYSTEM CONSOLE -->
             <div class="panel-card border p-6 rounded-2xl shadow-sm mb-8 space-y-3">
                 <h3 class="text-xs font-bold uppercase tracking-wider text-custom-muted"><i class="fa-solid fa-terminal text-indigo-500"></i> Intelligence Scan Target</h3>
                 <div class="flex flex-col sm:flex-row gap-3">
-                    <input type="text" id="targetUsername" placeholder="Enter social brand username handle (e.g., shikhotech)" 
+                    <input type="text" id="targetUsername" placeholder="Enter social brand username handle" 
                            class="flex-1 input-custom border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 font-medium">
                     <button onclick="executeAsyncRecon()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-6 py-3 rounded-xl text-sm transition shadow-md cursor-pointer">
                         Trigger Threat Map
@@ -195,17 +175,14 @@ HTML_LAYOUT = """
                 </div>
             </div>
 
-            <!-- LOG LOADER ANIMATION -->
             <div id="loader" class="hidden text-center py-20">
                 <i class="fa-solid fa-circle-notch fa-spin text-4xl text-indigo-500"></i>
                 <p class="text-xs text-custom-muted mt-4 font-semibold animate-pulse">Running multi-threaded matrix loops on international clusters...</p>
             </div>
 
-            <!-- OUTPUT SCREEN GRID -->
             <div id="outputContainer" class="hidden space-y-6">
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     
-                    <!-- MATPLOTLIB REPORT CARD -->
                     <div class="panel-card border p-5 rounded-2xl flex flex-col items-center justify-center shadow-sm">
                         <h3 class="font-bold text-xs uppercase tracking-wider text-custom-muted w-full mb-4 text-left"><i class="fa-solid fa-chart-pie text-indigo-500"></i> Graphical Data Matrix</h3>
                         <div class="border border-custom p-2 rounded-xl bg-gray-500/5">
@@ -213,13 +190,11 @@ HTML_LAYOUT = """
                         </div>
                     </div>
 
-                    <!-- PROFILE DISCOVERY SUITE -->
                     <div class="panel-card border p-5 rounded-2xl flex flex-col shadow-sm">
                         <h3 class="font-bold text-xs uppercase tracking-wider text-emerald-500 mb-4"><i class="fa-solid fa-square-check"></i> Discovered Network Profiles (<span id="count-found">0</span>)</h3>
                         <div id="foundList" class="space-y-2 overflow-y-auto max-h-72 flex-1 pr-1"></div>
                     </div>
 
-                    <!-- VACANT DIGITAL REAL-ESTATE FOR MARKETING -->
                     <div class="panel-card border p-5 rounded-2xl flex flex-col shadow-sm">
                         <h3 class="font-bold text-xs uppercase tracking-wider text-rose-500 mb-4"><i class="fa-solid fa-circle-nodes"></i> Vacant Marketing Assets (<span id="count-vacant">0</span>)</h3>
                         <div id="vacantList" class="space-y-2 overflow-y-auto max-h-72 flex-1 pr-1"></div>
@@ -230,7 +205,6 @@ HTML_LAYOUT = """
         </main>
     </div>
 
-    <!-- UI MECHANICS APPARATUS -->
     <script>
         function toggleDarkMode(forceDark = false) {
             const body = document.body;
@@ -264,22 +238,22 @@ HTML_LAYOUT = """
             document.getElementById('outputContainer').classList.add('hidden');
 
             try {
-                const response = await fetch(`/api/audit?username=${user}`);
+                // Modified blueprint endpoint structural tracking
+                const response = await fetch(`./api/audit?username=${user}`);
                 const data = await response.json();
                 
                 document.getElementById('loader').classList.add('hidden');
                 
                 if(data.success) {
-                    document.getElementById('analyticsChart').src = '/' + data.chart_url + '?cache=' + new Date().getTime();
+                    document.getElementById('analyticsChart').src = './' + data.chart_url + '?cache=' + new Date().getTime();
                     
-                    // Populate Active Nodes
                     const foundBox = document.getElementById('foundList');
                     foundBox.innerHTML = '';
                     const foundKeys = Object.keys(data.found);
                     document.getElementById('count-found').innerText = foundKeys.length;
                     
                     if(foundKeys.length === 0) {
-                        foundBox.innerHTML = '<p class="text-xs text-gray-500 text-center py-6 font-medium">No brand footprint footprints discovered.</p>';
+                        foundBox.innerHTML = '<p class="text-xs text-gray-500 text-center py-6 font-medium">No brand footprints discovered.</p>';
                     } else {
                         for(const [platform, link] of Object.entries(data.found)) {
                             foundBox.innerHTML += `
@@ -290,14 +264,13 @@ HTML_LAYOUT = """
                         }
                     }
 
-                    // Populate Marketing Expansion Targets
                     const vacantBox = document.getElementById('vacantList');
                     vacantBox.innerHTML = '';
                     const missingKeys = Object.keys(data.missing);
                     document.getElementById('count-vacant').innerText = missingKeys.length;
                     
                     if(missingKeys.length === 0) {
-                        vacantBox.innerHTML = '<p class="text-xs text-gray-500 text-center py-6 font-medium">Global saturation complete. No slots vacant.</p>';
+                        vacantBox.innerHTML = '<p class="text-xs text-gray-500 text-center py-6 font-medium">Global saturation complete.</p>';
                     } else {
                         for(const platform of missingKeys) {
                             vacantBox.innerHTML += `
@@ -321,8 +294,4 @@ HTML_LAYOUT = """
 </body>
 </html>
 """
-
-if __name__ == '__main__':
-    # Production Engine Run Configuration
-    app.run(debug=True, host='0.0.0.0', port=5000)
 
