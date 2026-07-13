@@ -1,0 +1,45 @@
+{
+    "leads": [
+        {
+            "id": 1,
+            "name": "Rahul Sharma",
+            "email": "rahul@example.com",
+            "phone": "+919876543210",
+            "company": "Sharma Tech",
+            "status": "New",
+            "value": 45000,
+            "date": "2026-07-10"
+        },
+        {
+            "id": 2,
+            "name": "Amit Verma",
+            "email": "amit@example.com",
+            "phone": "+918765432109",
+            "company": "Verma Digital",
+            "status": "Contacted",
+            "value": 120000,
+            "date": "2026-07-11"
+        }
+    ],
+    "customers": [
+        {
+            "id": 3,
+            "name": "Priya Singh",
+            "email": "priya@example.com",
+            "phone": "+917654321098",
+            "company": "Singh Org",
+            "revenue": 150000,
+            "joined_date": "2026-07-11"
+        }
+    ],
+    "tasks": [
+        {
+            "id": 1,
+            "title": "Setup Marketing Automation Gateway",
+            "due_date": "2026-07-15",
+            "priority": "High",
+            "status": "Pending"
+        }
+    ],
+    "automation_queue": []
+}
