@@ -6,6 +6,7 @@ from script33 import script33_bp
 from script34 import script34_bp
 from script35 import script35_bp
 from script36 import script36_bp
+from script37 import script37_bp
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
@@ -88,6 +89,7 @@ def home():
             <a href="/script34/" class="btn"> Crm</a>
             <a href="/script35/" class="btn"> Social Media Finder</a>
             <a href="/script36/" class="btn"> Backlinks</a>
+            <a href="/script37/" class="btn"> unlimited email market</a>
         </div>
     </body>
     </html>
@@ -98,6 +100,7 @@ app.register_blueprint(script33_bp, url_prefix='/script33')
 app.register_blueprint(script34_bp, url_prefix='/script34')
 app.register_blueprint(script35_bp, url_prefix='/script35')
 app.register_blueprint(script36_bp, url_prefix='/script36')
+app.register_blueprint(script37_bp, url_prefix='/script37')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
