@@ -12,8 +12,12 @@ from flask import Blueprint, render_template_string, request, jsonify
 script35_bp = Blueprint('script35', __name__, static_folder='static')
 
 COMPANY_NAME = os.environ.get('COMPANY_NAME', 'Enterprise Solutions')
+
+# Premium Tech Browsing Headers to bypass heavy platform blocks
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
 }
 
 TARGET_SITES = {
@@ -41,31 +45,62 @@ results_lock = threading.Lock()
 def check_platform(platform, url_template, username, found, missing, errors):
     url = url_template.format(username)
     try:
-        response = requests.get(url, headers=HEADERS, timeout=6, allow_redirects=True)
-        if response.status_code == 200:
-            with results_lock: found[platform] = url
-        elif response.status_code == 404:
+        # Session built-in handling to sustain redirect traps
+        session = requests.Session()
+        response = session.get(url, headers=HEADERS, timeout=7, allow_redirects=True)
+        
+        # Smart detection parsing based on common social network behaviors
+        final_url = response.url.lower()
+        
+        if response.status_code == 404:
             with results_lock: missing[platform] = url
+        elif response.status_code == 200:
+            # Bypass false positives like redirects to login panels
+            if "login" in final_url or "signin" in final_url or "register" in final_url:
+                with results_lock: missing[platform] = url
+            elif platform == "Instagram" and "instagram.com/accounts/" in final_url:
+                with results_lock: missing[platform] = url
+            else:
+                with results_lock: found[platform] = url
         else:
-            with results_lock: errors[platform] = f"Status: {response.status_code}"
+            with results_lock: errors[platform] = f"Status {response.status_code}"
     except requests.RequestException:
         with results_lock: errors[platform] = "Timeout/Restricted"
 
 def generate_analytics_chart(username, found_count, missing_count, error_count):
-    labels = ['Active Profiles', 'Vacant Handles', 'Errors/Blocked']
+    # Total fallback safe check
+    if found_count == 0 and missing_count == 0 and error_count == 0:
+        missing_count = 1 
+
+    labels = ['Active Profiles', 'Vacant Handles', 'Restricted']
     sizes = [found_count, missing_count, error_count]
-    colors = ['#6366f1', '#f43f5e', '#9ca3af']
+    colors = ['#38bdf8', '#4ade80', '#64748b']
     
-    plt.figure(figsize=(6, 4))
-    plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    wedges, texts, autotexts = ax.pie(
+        sizes, 
+        labels=labels, 
+        colors=colors, 
+        autopct='%1.1f%%', 
+        startangle=140, 
+        textprops=dict(color="w", weight="bold")
+    )
     
-    # Render static path architecture security
+    # Matching dark cyberpunk layout palette
+    fig.patch.set_facecolor('#1e293b')
+    ax.set_facecolor('#1e293b')
+    
+    for text in texts:
+        text.set_color('#94a3b8')
+    for autotext in autotexts:
+        autotext.set_color('#0f172a')
+        
     static_dir = os.path.join(os.path.dirname(__file__), 'static')
     if not os.path.exists(static_dir):
         os.makedirs(static_dir)
         
     graph_path = os.path.join(static_dir, f"{username}_intel_report.png")
-    plt.savefig(graph_path, dpi=150, bbox_inches='tight', transparent=True)
+    plt.savefig(graph_path, dpi=150, bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
     return f"static/{username}_intel_report.png"
 
@@ -99,105 +134,133 @@ def api_audit():
         'chart_url': chart_url
     })
 
-# SYSTEM UI LAYOUT SCHEMATICS
+# ULTRA PREMIUM SYSTEM UI LAYOUT SCHEMATICS
 HTML_LAYOUT = """
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ company }} | Advanced Social Intelligence Finder</title>
+    <title>{{ company }} | Recon Social Architecture Engine</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=300;400;500;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; transition: background-color 0.3s, color 0.3s; }
-        .dark-mode { 
-            --bg-panel: #111827; 
-            --bg-main: #030712; 
-            --text-main: #f9fafb; 
-            --text-muted: #9ca3af; 
-            --border-color: #1f2937; 
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+        body { 
+            font-family: 'Space Grotesk', sans-serif; 
+            background-color: #0f172a; 
+            color: #f8fafc;
         }
-        .light-mode { 
-            --bg-panel: #ffffff; 
-            --bg-main: #f3f4f6; 
-            --text-main: #111827; 
-            --text-muted: #6b7280; 
-            --border-color: #e5e7eb; 
+        .cyber-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
         }
-        body { background-color: var(--bg-main); color: var(--text-main); }
-        .panel-card { background-color: var(--bg-panel); border-color: var(--border-color); }
-        .text-custom-main { color: var(--text-main); }
-        .text-custom-muted { color: var(--text-muted); }
-        .border-custom { border-color: var(--border-color); }
-        .input-custom { background-color: var(--bg-main); border-color: var(--border-color); color: var(--text-main); }
+        .glow-accent {
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
     </style>
 </head>
-<body class="light-mode antialiased selection:bg-indigo-500 selection:text-white">
+<body class="antialiased selection:bg-sky-500 selection:text-slate-900">
 
-    <div class="min-h-screen flex flex-col md:flex-row">
-        <aside class="w-full md:w-64 bg-gray-950 text-white flex flex-col border-r border-gray-900">
-            <div class="p-6 border-b border-gray-900 flex items-center gap-3">
-                <div class="p-2.5 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-xl"><i class="fa-solid fa-satellite-dish text-lg text-white"></i></div>
+    <div class="min-h-screen flex flex-col lg:flex-row">
+        <!-- Sidebar Navigation Element -->
+        <aside class="w-full lg:w-72 bg-slate-950 flex flex-col border-b lg:border-r border-slate-800 p-6">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="p-3 bg-gradient-to-br from-sky-500 to-indigo-600 rounded-xl shadow-lg glow-accent">
+                    <i class="fa-solid fa-shield-halved text-xl text-white"></i>
+                </div>
                 <div>
-                    <h2 class="font-bold text-base tracking-wide leading-none text-white">SocialFinder</h2>
-                    <span class="text-[10px] text-gray-400 uppercase tracking-widest mt-1 block">OSINT v35.0</span>
+                    <h2 class="font-bold text-lg tracking-tight text-white leading-none">SocialRadar</h2>
+                    <span class="text-[10px] text-sky-400 font-mono uppercase tracking-widest mt-1 block">OSINT ENGINE v35</span>
                 </div>
             </div>
-            <nav class="flex-1 p-4 space-y-1.5">
-                <button class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"><i class="fa-solid fa-magnifying-glass w-5 text-center"></i> Recon Gateway</button>
-            </nav>
-            <div class="p-4 border-t border-gray-900 space-y-2">
-                <button onclick="toggleDarkMode()" class="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gray-900 text-xs font-semibold cursor-pointer text-gray-300">
-                    <span>Appearance System</span><i id="theme-icon" class="fa-solid fa-moon"></i>
+            
+            <nav class="flex-1 space-y-2">
+                <button class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium bg-gradient-to-r from-sky-600 to-sky-500 text-white shadow-md">
+                    <i class="fa-solid fa-terminal w-5 text-sky-200"></i> Target Analyzer
                 </button>
+            </nav>
+            
+            <div class="pt-4 border-t border-slate-800 text-center">
+                <span class="text-[11px] text-slate-500 font-mono">Status: Secure Sandbox Connection</span>
             </div>
         </aside>
 
-        <main class="flex-1 p-6 md:p-8 overflow-y-auto max-h-screen">
-            <div class="flex justify-between items-center border-b border-custom pb-5 mb-6">
+        <!-- Main Dashboard Arena -->
+        <main class="flex-1 p-6 lg:p-10 overflow-y-auto">
+            <div class="flex flex-col sm:flex-row justify-between sm:items-center border-b border-slate-800 pb-6 mb-8 gap-4">
                 <div>
-                    <h1 class="text-2xl font-black tracking-tight text-custom-main">{{ company }}</h1>
-                    <p class="text-xs text-custom-muted mt-0.5">Advanced Cross-Border Social Footprint Footmarking Engine</p>
+                    <h1 class="text-3xl font-extrabold tracking-tight text-white">{{ company }}</h1>
+                    <p class="text-sm text-slate-400 mt-1">Cross-Platform Identity Matrix & Footprint Verification Terminal</p>
                 </div>
-                <span class="text-[10px] font-mono font-bold bg-indigo-500/10 text-indigo-500 px-2 py-1 rounded border border-indigo-500/20">Active Node</span>
+                <div>
+                    <span class="inline-flex items-center gap-2 text-xs font-mono bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/20">
+                        <span class="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span> Global Link Array Active
+                    </span>
+                </div>
             </div>
 
-            <div class="panel-card border p-6 rounded-2xl shadow-sm mb-8 space-y-3">
-                <h3 class="text-xs font-bold uppercase tracking-wider text-custom-muted"><i class="fa-solid fa-terminal text-indigo-500"></i> Intelligence Scan Target</h3>
-                <div class="flex flex-col sm:flex-row gap-3">
-                    <input type="text" id="targetUsername" placeholder="Enter social brand username handle" 
-                           class="flex-1 input-custom border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 font-medium">
-                    <button onclick="executeAsyncRecon()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-6 py-3 rounded-xl text-sm transition shadow-md cursor-pointer">
-                        Trigger Threat Map
+            <!-- Target Search Form -->
+            <div class="cyber-card p-6 rounded-2xl mb-8">
+                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-fingerprint text-sky-400"></i> Scan Target Formulation
+                </h3>
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <input type="text" id="targetUsername" placeholder="Enter username / brand handle string (e.g. shivam)" 
+                           class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-sky-500 font-mono">
+                    <button onclick="executeAsyncRecon()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-8 py-3.5 rounded-xl text-sm transition shadow-lg hover:shadow-sky-500/20 active:scale-95 cursor-pointer">
+                        Execute Network Pulse
                     </button>
                 </div>
             </div>
 
-            <div id="loader" class="hidden text-center py-20">
-                <i class="fa-solid fa-circle-notch fa-spin text-4xl text-indigo-500"></i>
-                <p class="text-xs text-custom-muted mt-4 font-semibold animate-pulse">Running multi-threaded matrix loops on international clusters...</p>
+            <!-- Loading Spinner Grid -->
+            <div id="loader" class="hidden text-center py-24 cyber-card rounded-2xl">
+                <i class="fa-solid fa-circle-notch fa-spin text-5xl text-sky-400"></i>
+                <p class="text-sm text-slate-400 mt-6 font-mono animate-pulse">Running multi-threaded cluster scan across core social networks...</p>
             </div>
 
-            <div id="outputContainer" class="hidden space-y-6">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Data Analysis Dashboard Output -->
+            <div id="outputContainer" class="hidden space-y-8">
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
                     
-                    <div class="panel-card border p-5 rounded-2xl flex flex-col items-center justify-center shadow-sm">
-                        <h3 class="font-bold text-xs uppercase tracking-wider text-custom-muted w-full mb-4 text-left"><i class="fa-solid fa-chart-pie text-indigo-500"></i> Graphical Data Matrix</h3>
-                        <div class="border border-custom p-2 rounded-xl bg-gray-500/5">
-                            <img id="analyticsChart" src="" alt="Live Analysis Plot Engine" class="rounded-lg max-w-full">
+                    <!-- Graph Cluster -->
+                    <div class="cyber-card p-6 rounded-2xl flex flex-col">
+                        <h3 class="font-bold text-xs uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-pie text-sky-400"></i> Analytics Distribution
+                        </h3>
+                        <div class="border border-slate-700 p-4 rounded-xl bg-slate-900/50 flex-1 flex items-center justify-center">
+                            <img id="analyticsChart" src="" alt="Dynamic Evaluation Output" class="rounded-lg max-h-64 object-contain">
                         </div>
                     </div>
 
-                    <div class="panel-card border p-5 rounded-2xl flex flex-col shadow-sm">
-                        <h3 class="font-bold text-xs uppercase tracking-wider text-emerald-500 mb-4"><i class="fa-solid fa-square-check"></i> Discovered Network Profiles (<span id="count-found">0</span>)</h3>
-                        <div id="foundList" class="space-y-2 overflow-y-auto max-h-72 flex-1 pr-1"></div>
+                    <!-- Discovered Matrix List -->
+                    <div class="cyber-card p-6 rounded-2xl flex flex-col">
+                        <h3 class="font-bold text-xs uppercase tracking-widest text-sky-400 mb-4 flex justify-between items-center">
+                            <span class="flex items-center gap-2"><i class="fa-solid fa-circle-check"></i> Registered Profiles</span>
+                            <span id="count-found" class="bg-sky-500/10 text-sky-400 border border-sky-500/20 text-xs px-2 py-0.5 rounded-md font-mono">0</span>
+                        </h3>
+                        <div id="foundList" class="space-y-3 overflow-y-auto max-h-80 flex-1 pr-1"></div>
                     </div>
 
-                    <div class="panel-card border p-5 rounded-2xl flex flex-col shadow-sm">
-                        <h3 class="font-bold text-xs uppercase tracking-wider text-rose-500 mb-4"><i class="fa-solid fa-circle-nodes"></i> Vacant Marketing Assets (<span id="count-vacant">0</span>)</h3>
-                        <div id="vacantList" class="space-y-2 overflow-y-auto max-h-72 flex-1 pr-1"></div>
+                    <!-- Vacant Assets List -->
+                    <div class="cyber-card p-6 rounded-2xl flex flex-col">
+                        <h3 class="font-bold text-xs uppercase tracking-widest text-emerald-400 mb-4 flex justify-between items-center">
+                            <span class="flex items-center gap-2"><i class="fa-solid fa-circle-plus"></i> Unclaimed Channels</span>
+                            <span id="count-vacant" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs px-2 py-0.5 rounded-md font-mono">0</span>
+                        </h3>
+                        <div id="vacantList" class="space-y-3 overflow-y-auto max-h-80 flex-1 pr-1"></div>
                     </div>
 
                 </div>
@@ -206,39 +269,14 @@ HTML_LAYOUT = """
     </div>
 
     <script>
-        function toggleDarkMode(forceDark = false) {
-            const body = document.body;
-            const icon = document.getElementById('theme-icon');
-            if (body.classList.contains('light-mode') || forceDark) {
-                body.classList.remove('light-mode'); body.classList.add('dark-mode');
-                body.style.setProperty('--bg-main', '#030712'); body.style.setProperty('--bg-panel', '#111827');
-                body.style.setProperty('--text-main', '#f9fafb'); body.style.setProperty('--border-color', '#1f2937');
-                body.style.setProperty('--text-muted', '#9ca3af');
-                icon.className = "fa-solid fa-sun text-amber-400";
-                localStorage.setItem('theme', 'dark');
-            } else {
-                body.classList.remove('dark-mode'); body.classList.add('light-mode');
-                body.style.setProperty('--bg-main', '#f3f4f6'); body.style.setProperty('--bg-panel', '#ffffff');
-                body.style.setProperty('--text-main', '#111827'); body.style.setProperty('--border-color', '#e5e7eb');
-                body.style.setProperty('--text-muted', '#6b7280');
-                icon.className = "fa-solid fa-moon";
-                localStorage.setItem('theme', 'light');
-            }
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            if (localStorage.getItem('theme') === 'dark') toggleDarkMode(true);
-        });
-
         async function executeAsyncRecon() {
             const user = document.getElementById('targetUsername').value.trim();
-            if(!user) return alert("Validation Failed: Active handle node must not be blank.");
+            if(!user) return alert("System Prompt Failure: Input handle variable can't be null.");
 
             document.getElementById('loader').classList.remove('hidden');
             document.getElementById('outputContainer').classList.add('hidden');
 
             try {
-                // Modified blueprint endpoint structural tracking
                 const response = await fetch(`./api/audit?username=${user}`);
                 const data = await response.json();
                 
@@ -253,13 +291,13 @@ HTML_LAYOUT = """
                     document.getElementById('count-found').innerText = foundKeys.length;
                     
                     if(foundKeys.length === 0) {
-                        foundBox.innerHTML = '<p class="text-xs text-gray-500 text-center py-6 font-medium">No brand footprints discovered.</p>';
+                        foundBox.innerHTML = '<p class="text-xs text-slate-500 text-center py-8 font-mono">No network blueprints mapped.</p>';
                     } else {
                         for(const [platform, link] of Object.entries(data.found)) {
                             foundBox.innerHTML += `
-                                <div class="flex justify-between items-center p-3 bg-gray-500/5 border border-custom rounded-xl text-xs">
-                                    <span class="font-bold text-custom-main">${platform}</span>
-                                    <a href="${link}" target="_blank" class="text-indigo-500 hover:underline flex items-center gap-1 font-semibold">Verify Link <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i></a>
+                                <div class="flex justify-between items-center p-3.5 bg-slate-900/60 border border-slate-700/60 rounded-xl text-xs transition hover:border-sky-500/50">
+                                    <span class="font-bold text-slate-200"><i class="fa-solid fa-globe text-sky-400/70 mr-1.5"></i> ${platform}</span>
+                                    <a href="${link}" target="_blank" class="text-sky-400 hover:text-sky-300 flex items-center gap-1 font-semibold border border-sky-500/20 bg-sky-500/5 px-2.5 py-1 rounded-md transition">Open Intel <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i></a>
                                 </div>`;
                         }
                     }
@@ -270,28 +308,27 @@ HTML_LAYOUT = """
                     document.getElementById('count-vacant').innerText = missingKeys.length;
                     
                     if(missingKeys.length === 0) {
-                        vacantBox.innerHTML = '<p class="text-xs text-gray-500 text-center py-6 font-medium">Global saturation complete.</p>';
+                        vacantBox.innerHTML = '<p class="text-xs text-slate-500 text-center py-8 font-mono">Global network fully saturated.</p>';
                     } else {
                         for(const platform of missingKeys) {
                             vacantBox.innerHTML += `
-                                <div class="p-3 bg-gray-500/5 border border-dashed border-custom rounded-xl text-xs flex justify-between items-center text-custom-muted">
-                                    <span class="font-medium">${platform}</span>
-                                    <span class="text-[9px] text-emerald-500 font-bold bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-md uppercase tracking-wider">Available</span>
+                                <div class="p-3.5 bg-slate-900/40 border border-dashed border-slate-700/80 rounded-xl text-xs flex justify-between items-center text-slate-400">
+                                    <span class="font-medium font-mono"><i class="fa-solid fa-plus text-emerald-400/50 mr-1.5"></i> ${platform}</span>
+                                    <span class="text-[9px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md uppercase tracking-wider">Available</span>
                                 </div>`;
                         }
                     }
 
                     document.getElementById('outputContainer').classList.remove('hidden');
                 } else {
-                    alert("Fatal: Signal loss within core logic loop.");
+                    alert("System Exception: Internal logic array failed to yield return stream.");
                 }
             } catch (err) {
                 document.getElementById('loader').classList.add('hidden');
-                console.error("Transmission Error:", err);
+                console.error("Critical Signal Error:", err);
             }
         }
     </script>
 </body>
 </html>
 """
-
