@@ -285,7 +285,7 @@ def process_lead_automation():
     return jsonify({'success': True, 'message': f'Successfully deployed {imported_count} leads to broadcast engine.'})
 
 # =========================================================================
-# INTERLINKED CSV WORKFLOW UPLOADER (FIXED GAP PREVENTING GHOST DATA RESET)
+# INTERLINKED CSV WORKFLOW UPLOADER (CRITICAL BUG FIXED - FORCED PERSISTENCE)
 # =========================================================================
 @script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
@@ -300,13 +300,13 @@ def upload_automation_sheet():
     if file and file.filename.endswith('.csv'):
         stream = StringIO(file.stream.read().decode("UTF-8"), newline=None)
         csv_input = csv.reader(stream)
+        
+        # Fresh read to avoid any out-of-sync cache or thread issues
         db = db_read()
         imported_count = 0
         
-        # Skip header if present
         try:
             first_row = next(csv_input)
-            # If it's not a header row, process it
             if first_row and ('phone' in first_row[0].lower() or 'name' in first_row[1].lower()):
                 pass
             else:
@@ -316,6 +316,10 @@ def upload_automation_sheet():
             return jsonify({'success': False, 'message': 'Empty CSV layout structure.'})
 
         current_timestamp = int(time.time())
+
+        # Ensure schema keys exist completely before push operations
+        if 'automation_queue' not in db: db['automation_queue'] = []
+        if 'leads' not in db: db['leads'] = []
 
         for idx, row in enumerate(csv_input):
             if not row or len(row) < 2: continue
@@ -332,10 +336,8 @@ def upload_automation_sheet():
             except:
                 value = 65000.0
 
-            # SAFE ID GENERATION ENGINE WITHIN JS NUMERICAL BOUNDARIES
             safe_js_id = int(current_timestamp + idx + random.randint(100, 999))
 
-            # 1. Add to Broadcast System Queue
             db['automation_queue'].append({
                 'id': f"{safe_js_id}_{random.randint(10, 99)}",
                 'phone': phone,
@@ -345,7 +347,6 @@ def upload_automation_sheet():
                 'timestamp': time.strftime('%Y-%m-%d %H:%M')
             })
 
-            # 2. INTERLINK DATA TO SALES PIPELINE & LEADS
             db['leads'].append({
                 'id': safe_js_id,
                 'name': name,
@@ -358,6 +359,7 @@ def upload_automation_sheet():
             })
             imported_count += 1
             
+        # Hard commit directly using the engine wrapper
         db_write(db)
         return jsonify({'success': True, 'message': f'Successfully parsed {imported_count} contacts & perfectly linked into Pipeline system!'})
         
@@ -492,7 +494,6 @@ HTML_LAYOUT = """
                         <h1 class="text-2xl font-bold text-custom-main">Main Command Dashboard</h1>
                         <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
                     </div>
-                    <!-- NEW ADVANCED RADAR: REAL-TIME HEALTH ACCELERATOR -->
                     <div class="bg-indigo-500/10 text-indigo-500 px-4 py-2 rounded-xl text-xs font-bold border border-indigo-500/20 flex items-center gap-2">
                         <span class="flex h-2 w-2 relative">
                           <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -502,7 +503,6 @@ HTML_LAYOUT = """
                     </div>
                 </div>
                 
-                <!-- SCROLLABLE GRID METRICS ROW FOR ALL DEVICE WIDTHS -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-indigo-500/10 text-indigo-600 rounded-xl"><i class="fa-solid fa-bolt text-lg"></i></div>
@@ -612,7 +612,6 @@ HTML_LAYOUT = """
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <!-- CONTROLS & LEAD INJECTION BOX -->
                     <div class="panel-card p-6 rounded-2xl border h-fit space-y-5 shadow-sm">
                         <div>
                             <h3 class="font-bold text-base text-indigo-500 mb-2"><i class="fa-solid fa-gears"></i> Engine Composer</h3>
@@ -626,9 +625,7 @@ HTML_LAYOUT = """
 
                         <div class="border-t border-custom pt-4">
                             <h4 class="text-xs font-bold text-custom-main mb-3 flex items-center gap-1.5"><i class="fa-solid fa-users text-indigo-500"></i> Option A: Inject Live Funnel Leads</h4>
-                            <div id="automation-leads-injector-list" class="space-y-2 max-h-40 overflow-y-auto border border-custom p-2.5 rounded-xl bg-gray-500/5">
-                                <!-- Populated dynamically from JavaScript -->
-                            </div>
+                            <div id="automation-leads-injector-list" class="space-y-2 max-h-40 overflow-y-auto border border-custom p-2.5 rounded-xl bg-gray-500/5"></div>
                             <button onclick="deployLiveLeadsToAutomation()" class="w-full mt-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-xl text-xs cursor-pointer transition shadow-sm">
                                 🚀 Process Selected Leads
                             </button>
@@ -648,7 +645,6 @@ HTML_LAYOUT = """
                         </div>
                     </div>
 
-                    <!-- BROADCAST REALTIME DISPLAY LOG ENGINE -->
                     <div class="lg:col-span-2 panel-card p-6 rounded-2xl border flex flex-col shadow-sm">
                         <h3 class="font-bold text-base mb-4 text-custom-main"><i class="fa-solid fa-satellite-dish text-indigo-600"></i> Dispatched Broadcast Operational Grid</h3>
                         <div class="overflow-x-auto flex-1 max-h-[520px]">
@@ -811,7 +807,6 @@ HTML_LAYOUT = """
             setTimeout(() => el.classList.add('translate-y-20', 'opacity-0'), 3000);
         }
 
-        // REAL-TIME AUTO ENGINE INTERVALS (Every 5 seconds updates elements silently)
         window.addEventListener('DOMContentLoaded', () => {
             if (localStorage.getItem('theme') === 'dark') toggleDarkMode(true);
             switchTab('dashboard');
@@ -1204,4 +1199,3 @@ HTML_LAYOUT = """
 if __name__ == '__main__':
     init_db()
     app.run(debug=True, port=5000)
-
