@@ -19,6 +19,46 @@
             "status": "Contacted",
             "value": 120000,
             "date": "2026-07-11"
+        },
+        {
+            "id": 1783967248,
+            "name": "Amit Sharma",
+            "email": "amit@example.com",
+            "phone": "+919876543210",
+            "company": "Bulk Ingested Corp",
+            "status": "New",
+            "value": 65000.0,
+            "date": "2026-07-13"
+        },
+        {
+            "id": 1783966525,
+            "name": "Pooja Patel",
+            "email": "pooja@example.com",
+            "phone": "+919123456789",
+            "company": "Bulk Ingested Corp",
+            "status": "New",
+            "value": 65000.0,
+            "date": "2026-07-13"
+        },
+        {
+            "id": 1783966956,
+            "name": "Raj Malhotra",
+            "email": "raj@example.com",
+            "phone": "+919999888877",
+            "company": "Bulk Ingested Corp",
+            "status": "New",
+            "value": 65000.0,
+            "date": "2026-07-13"
+        },
+        {
+            "id": 1783967271,
+            "name": "Sneha Reddy",
+            "email": "sneha@example.com",
+            "phone": "+918888777766",
+            "company": "Bulk Ingested Corp",
+            "status": "New",
+            "value": 65000.0,
+            "date": "2026-07-13"
         }
     ],
     "customers": [
@@ -41,5 +81,38 @@
             "status": "Pending"
         }
     ],
-    "automation_queue": []
+    "automation_queue": [
+        {
+            "id": "1783967248_84",
+            "phone": "+919876543210",
+            "name": "Amit Sharma",
+            "email": "amit@example.com",
+            "message": "Welcome to OrbitEdge Media! Your campaign is now officially live.",
+            "timestamp": "2026-07-13 18:13"
+        },
+        {
+            "id": "1783966525_28",
+            "phone": "+919123456789",
+            "name": "Pooja Patel",
+            "email": "pooja@example.com",
+            "message": "Hey Pooja, thanks for choosing us. Let's schedule our kick-off call tomorrow.",
+            "timestamp": "2026-07-13 18:13"
+        },
+        {
+            "id": "1783966956_33",
+            "phone": "+919999888877",
+            "name": "Raj Malhotra",
+            "email": "raj@example.com",
+            "message": "Hello Raj, your monthly performance report has been generated. Check your dashboard.",
+            "timestamp": "2026-07-13 18:13"
+        },
+        {
+            "id": "1783967271_79",
+            "phone": "+918888777766",
+            "name": "Sneha Reddy",
+            "email": "sneha@example.com",
+            "message": "Hi Sneha, urgent update regarding your ad creatives. Please review the shared link.",
+            "timestamp": "2026-07-13 18:13"
+        }
+    ]
 }
