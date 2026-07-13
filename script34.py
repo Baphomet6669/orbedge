@@ -4,6 +4,7 @@ import time
 import random
 import csv
 from io import StringIO
+from threading import Lock
 from flask import Flask, Blueprint, render_template_string, request, jsonify, session, redirect, url_for
 
 # =========================================================================
@@ -18,8 +19,11 @@ DATA_FILE = 'crm_data.json'
 AUTH_USER = 'admin'
 AUTH_PASS = '5hsuusu78@#/@&hsb' 
 
+# Thread Lock for preventing JSON file corruption during high concurrency
+db_lock = Lock()
+
 # =========================================================================
-# DATABASE CORE (NO-SQL JSON SCHEMATICS ENGINE)
+# DATABASE CORE (SAFE NO-SQL JSON SCHEMATICS ENGINE)
 # =========================================================================
 def init_db():
     if not os.path.exists(DATA_FILE):
@@ -41,15 +45,17 @@ def init_db():
 
 def db_read():
     init_db()
-    with open(DATA_FILE, 'r') as f:
-        try:
-            return json.load(f)
-        except:
-            return { 'leads': [], 'customers': [], 'tasks': [], 'automation_queue': [] }
+    with db_lock:
+        with open(DATA_FILE, 'r') as f:
+            try:
+                return json.load(f)
+            except:
+                return { 'leads': [], 'customers': [], 'tasks': [], 'automation_queue': [] }
 
 def db_write(data):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    with db_lock:
+        with open(DATA_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
 
 # =========================================================================
 # MIDDLEWARE ENGINE
@@ -98,6 +104,10 @@ def get_dashboard_stats():
     total_revenue = sum(float(c.get('revenue', 0) or 0) for c in customers)
     high_value_leads_count = len([l for l in leads if float(l.get('value', 0) or 0) >= 100000])
     
+    # ADVANCED FEATURE: Win Rate & Pipeline Conversion Analytics
+    total_pipeline_entities = leads_count + len(customers)
+    win_rate = (len(customers) / total_pipeline_entities * 100) if total_pipeline_entities > 0 else 0
+
     stats = {
         'total_leads': leads_count,
         'total_customers': len(customers),
@@ -107,17 +117,15 @@ def get_dashboard_stats():
         'total_queued_messages': len(db.get('automation_queue', [])),
         'total_revenue_pool': total_revenue,
         'high_value_leads': high_value_leads_count,
+        'win_rate': round(win_rate, 1),
         'lead_status_counts': {'New': 0, 'Contacted': 0, 'Proposal': 0, 'Lost': 0},
-        'stage_revenue_metrics': {'New': 0.0, 'Contacted': 0.0, 'Proposal': 0.0, 'Lost': 0.0},
         'recent_activity': list(reversed(leads))[:6]
     }
     
     for l in leads:
         status = l.get('status', 'New')
-        val = float(l.get('value', 0) or 0)
         if status in stats['lead_status_counts']:
             stats['lead_status_counts'][status] += 1
-            stats['stage_revenue_metrics'][status] += val
             
     return jsonify(stats)
 
@@ -128,14 +136,14 @@ def save_lead():
     lead_id = request.form.get('id', '')
     
     lead_data = {
-        'id': int(lead_id) if lead_id else int(time.time()),
-        'name': request.form.get('name', '').strip(),
-        'email': request.form.get('email', '').strip(),
-        'phone': ''.join(c for c in request.form.get('phone', '') if c.isdigit() or c == '+'),
-        'company': request.form.get('company', '').strip(),
+        'id': int(lead_id) if lead_id else int(time.time() + random.randint(1000, 9999)),
+        'name': request.form.get('name', ''),
+        'email': request.form.get('email', ''),
+        'phone': request.form.get('phone', ''),
+        'company': request.form.get('company', ''),
         'status': request.form.get('status', 'New'),
         'value': float(request.form.get('value', 0) or 0),
-        'date': request.form.get('date') if lead_id else time.strftime('%Y-%m-%d')
+        'date': request.form.get('date') if (lead_id and request.form.get('date')) else time.strftime('%Y-%m-%d')
     }
 
     if lead_id:
@@ -173,7 +181,7 @@ def convert_to_customer():
     if target_lead:
         db['leads'] = [l for l in db['leads'] if l['id'] != target_id]
         db['customers'].append({
-            'id': int(time.time()),
+            'id': int(time.time() + random.randint(1000, 9999)),
             'name': target_lead['name'],
             'email': target_lead['email'],
             'phone': target_lead['phone'],
@@ -200,8 +208,8 @@ def save_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
     db['tasks'].append({
-        'id': int(time.time()),
-        'title': request.form.get('title', '').strip(),
+        'id': int(time.time() + random.randint(1000, 9999)),
+        'title': request.form.get('title', ''),
         'due_date': request.form.get('due_date', ''),
         'priority': request.form.get('priority', 'Medium'),
         'status': 'Pending'
@@ -261,13 +269,10 @@ def process_lead_automation():
     imported_count = 0
     for lead in db.get('leads', []):
         if str(lead['id']) in selected_ids:
-            custom_message = message_template.replace('[Name]', lead['name'])\
-                                             .replace('[Company]', lead.get('company', 'Individual'))\
-                                             .replace('[Value]', str(lead.get('value', 0)))\
-                                             .replace('[Status]', lead.get('status', 'New'))
+            custom_message = message_template.replace('[Name]', lead['name'])
             
             db['automation_queue'].append({
-                'id': f"{int(time.time())}_{random.randint(100, 999)}",
+                'id': f"{int(time.time())}_{random.randint(1000, 9999)}",
                 'phone': lead['phone'],
                 'name': lead['name'],
                 'email': lead['email'],
@@ -280,7 +285,7 @@ def process_lead_automation():
     return jsonify({'success': True, 'message': f'Successfully deployed {imported_count} leads to broadcast engine.'})
 
 # =========================================================================
-# INTERLINKED CSV WORKFLOW UPLOADER (ADVANCED COLUMN SAFETY)
+# INTERLINKED CSV WORKFLOW UPLOADER (FIXED GAP PREVENTING GHOST DATA RESET)
 # =========================================================================
 @script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
@@ -298,23 +303,41 @@ def upload_automation_sheet():
         db = db_read()
         imported_count = 0
         
-        for row in csv_input:
-            if not row or (len(row) < 1) or not row[0].strip(): continue
-            phone = ''.join(c for c in row[0] if c.isdigit() or c == '+')
-            name = row[1].strip() if len(row) > 1 and row[1].strip() else 'Valued Client'
-            email = row[2].strip() if len(row) > 2 else ''
-            message = row[3].strip() if len(row) > 3 and row[3].strip() else 'Hello, this is an automated broadcast alert.'
+        # Skip header if present
+        try:
+            first_row = next(csv_input)
+            # If it's not a header row, process it
+            if first_row and ('phone' in first_row[0].lower() or 'name' in first_row[1].lower()):
+                pass
+            else:
+                csv_rows = [first_row] + list(csv_input)
+                csv_input = csv_rows
+        except StopIteration:
+            return jsonify({'success': False, 'message': 'Empty CSV layout structure.'})
+
+        current_timestamp = int(time.time())
+
+        for idx, row in enumerate(csv_input):
+            if not row or len(row) < 2: continue
             
-            company = row[4].strip() if len(row) > 4 and row[4].strip() else 'Bulk Ingested Corp'
-            status = row[5].strip() if len(row) > 5 and row[5].strip() else 'New'
+            phone = ''.join(c for c in row[0] if c.isdigit() or c == '+')
+            name = row[1] if len(row) > 1 and row[1] else 'Valued Client'
+            email = row[2] if len(row) > 2 else ''
+            message = row[3] if len(row) > 3 else 'Hello, this is an automated broadcast alert.'
+            
+            company = row[4] if len(row) > 4 and row[4] else 'Bulk Ingested Corp'
+            status = row[5] if len(row) > 5 and row[5] else 'New'
             try:
                 value = float(row[6]) if len(row) > 6 else 65000.0
             except:
                 value = 65000.0
 
+            # SAFE ID GENERATION ENGINE WITHIN JS NUMERICAL BOUNDARIES
+            safe_js_id = int(current_timestamp + idx + random.randint(100, 999))
+
             # 1. Add to Broadcast System Queue
             db['automation_queue'].append({
-                'id': f"{int(time.time())}_{random.randint(100, 999)}",
+                'id': f"{safe_js_id}_{random.randint(10, 99)}",
                 'phone': phone,
                 'name': name,
                 'email': email,
@@ -324,12 +347,12 @@ def upload_automation_sheet():
 
             # 2. INTERLINK DATA TO SALES PIPELINE & LEADS
             db['leads'].append({
-                'id': int(time.time() * 1000) + random.randint(1, 999),
+                'id': safe_js_id,
                 'name': name,
                 'email': email,
                 'phone': phone,
                 'company': company,
-                'status': status if status in ['New', 'Contacted', 'Proposal', 'Lost'] else 'New',
+                'status': status,
                 'value': value,
                 'date': time.strftime('%Y-%m-%d')
             })
@@ -356,7 +379,7 @@ HTML_LAYOUT = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=300;400;500;600;700;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; transition: background-color 0.3s, color 0.3s; }
         .sidebar-link.active { background-color: #4f46e5; color: white; font-weight: 600; }
         .dark-mode { 
@@ -464,12 +487,22 @@ HTML_LAYOUT = """
 
             <!-- DASHBOARD TAB -->
             <div id="tab-dashboard" class="tab-content hidden space-y-8">
-                <div>
-                    <h1 class="text-2xl font-bold text-custom-main">Main Command Dashboard</h1>
-                    <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
+                <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-custom-main">Main Command Dashboard</h1>
+                        <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
+                    </div>
+                    <!-- NEW ADVANCED RADAR: REAL-TIME HEALTH ACCELERATOR -->
+                    <div class="bg-indigo-500/10 text-indigo-500 px-4 py-2 rounded-xl text-xs font-bold border border-indigo-500/20 flex items-center gap-2">
+                        <span class="flex h-2 w-2 relative">
+                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        Live Sync: Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
+                    </div>
                 </div>
                 
-                <!-- SCROLLABLE GRID METRICS ROW -->
+                <!-- SCROLLABLE GRID METRICS ROW FOR ALL DEVICE WIDTHS -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-indigo-500/10 text-indigo-600 rounded-xl"><i class="fa-solid fa-bolt text-lg"></i></div>
@@ -498,26 +531,6 @@ HTML_LAYOUT = """
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-emerald-500/20 text-emerald-600 rounded-xl"><i class="fa-solid fa-gavel text-lg"></i></div>
                         <div><p class="text-[10px] font-bold uppercase text-custom-muted">Revenue</p><h3 id="stat-revenue-pool" class="text-xl font-extrabold text-emerald-500">₹0</h3></div>
-                    </div>
-                </div>
-
-                <!-- ADVANCED STAGE FINANCIAL METRICS SUMMARY GRID -->
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-                    <div class="panel-card p-3 rounded-xl border bg-gray-500/5">
-                        <span class="text-[10px] text-custom-muted font-bold block">New Stage Value</span>
-                        <span id="stage-val-new" class="text-xs font-bold text-indigo-500">₹0</span>
-                    </div>
-                    <div class="panel-card p-3 rounded-xl border bg-gray-500/5">
-                        <span class="text-[10px] text-custom-muted font-bold block">Contacted Value</span>
-                        <span id="stage-val-contacted" class="text-xs font-bold text-blue-500">₹0</span>
-                    </div>
-                    <div class="panel-card p-3 rounded-xl border bg-gray-500/5">
-                        <span class="text-[10px] text-custom-muted font-bold block">Proposal Value</span>
-                        <span id="stage-val-proposal" class="text-xs font-bold text-emerald-500">₹0</span>
-                    </div>
-                    <div class="panel-card p-3 rounded-xl border bg-gray-500/5">
-                        <span class="text-[10px] text-custom-muted font-bold block">Lost Pipeline Value</span>
-                        <span id="stage-val-lost" class="text-xs font-bold text-rose-500">₹0</span>
                     </div>
                 </div>
 
@@ -603,12 +616,12 @@ HTML_LAYOUT = """
                     <div class="panel-card p-6 rounded-2xl border h-fit space-y-5 shadow-sm">
                         <div>
                             <h3 class="font-bold text-base text-indigo-500 mb-2"><i class="fa-solid fa-gears"></i> Engine Composer</h3>
-                            <p class="text-xs text-custom-muted">Compose your text template below. Tokens: <span class="font-mono text-indigo-500 font-bold">[Name], [Company], [Value], [Status]</span></p>
+                            <p class="text-xs text-custom-muted">Compose your text template below. Use token <span class="font-mono text-indigo-500 font-bold">[Name]</span> for dynamic lead customization.</p>
                         </div>
                         
                         <div>
                             <label class="block text-xs font-bold text-custom-muted mb-1.5">Message Template</label>
-                            <textarea id="auto_msg_template" rows="4" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none focus:border-indigo-500 resize-none" placeholder="Namaste [Name], your deal size for [Company] is ₹[Value] status: [Status]!"></textarea>
+                            <textarea id="auto_msg_template" rows="4" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none focus:border-indigo-500 resize-none" placeholder="Namaste [Name], check out our new automation update!"></textarea>
                         </div>
 
                         <div class="border-t border-custom pt-4">
@@ -798,9 +811,14 @@ HTML_LAYOUT = """
             setTimeout(() => el.classList.add('translate-y-20', 'opacity-0'), 3000);
         }
 
+        // REAL-TIME AUTO ENGINE INTERVALS (Every 5 seconds updates elements silently)
         window.addEventListener('DOMContentLoaded', () => {
             if (localStorage.getItem('theme') === 'dark') toggleDarkMode(true);
             switchTab('dashboard');
+            
+            setInterval(() => {
+                if (activeTab === 'dashboard') loadDashboardEngine(true);
+            }, 5000);
         });
 
         function toggleDarkMode(forceDark = false) {
@@ -848,7 +866,7 @@ HTML_LAYOUT = """
             if (target === 'reports') loadReportsEngine();
         }
 
-        async function loadDashboardEngine() {
+        async function loadDashboardEngine(isSilent = false) {
             let stats = await fetchAPI('get_dashboard_stats');
             if(!stats) return;
 
@@ -860,30 +878,27 @@ HTML_LAYOUT = """
             document.getElementById('stat-avg-deal').innerText = '₹' + parseFloat(stats.average_deal_size || 0).toLocaleString('en-IN', {maximumFractionDigits: 0});
             document.getElementById('stat-revenue-pool').innerText = '₹' + parseFloat(stats.total_revenue_pool || 0).toLocaleString('en-IN', {maximumFractionDigits: 0});
             
-            // Populating dynamic financial metrics sub-row
-            document.getElementById('stage-val-new').innerText = '₹' + parseFloat(stats.stage_revenue_metrics.New || 0).toLocaleString('en-IN');
-            document.getElementById('stage-val-contacted').innerText = '₹' + parseFloat(stats.stage_revenue_metrics.Contacted || 0).toLocaleString('en-IN');
-            document.getElementById('stage-val-proposal').innerText = '₹' + parseFloat(stats.stage_revenue_metrics.Proposal || 0).toLocaleString('en-IN');
-            document.getElementById('stage-val-lost').innerText = '₹' + parseFloat(stats.stage_revenue_metrics.Lost || 0).toLocaleString('en-IN');
+            if(document.getElementById('conversion-win-rate')) {
+                document.getElementById('conversion-win-rate').innerText = `Win Rate: ${stats.win_rate}%`;
+            }
 
-            let actList = document.getElementById('recent-activity-list');
-            actList.innerHTML = '';
-            
-            if(!stats.recent_activity || stats.recent_activity.length === 0) {
-                actList.innerHTML = `<p class="text-xs text-gray-500 text-center py-6">No recent logs.</p>`;
-            } else {
-                stats.recent_activity.forEach(act => {
-                    actList.innerHTML += `
-                    <div class="flex items-center justify-between p-3 bg-gray-500/5 rounded-xl border border-custom gap-2">
-                        <div class="truncate"><p class="text-xs font-bold text-custom-main truncate">${act.name}</p><span class="text-[10px] text-custom-muted truncate block">${act.company || 'Individual'}</span></div>
-                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 shrink-0">${act.status}</span>
-                    </div>`;
-                });
+            if (!isSilent) {
+                let actList = document.getElementById('recent-activity-list');
+                actList.innerHTML = '';
+                if(!stats.recent_activity || stats.recent_activity.length === 0) {
+                    actList.innerHTML = `<p class="text-xs text-gray-500 text-center py-6">No recent logs.</p>`;
+                } else {
+                    stats.recent_activity.forEach(act => {
+                        actList.innerHTML += `
+                        <div class="flex items-center justify-between p-3 bg-gray-500/5 rounded-xl border border-custom gap-2">
+                            <div class="truncate"><p class="text-xs font-bold text-custom-main truncate">${act.name}</p><span class="text-[10px] text-custom-muted truncate block">${act.company || 'Individual'}</span></div>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 shrink-0">${act.status}</span>
+                        </div>`;
+                    });
+                }
             }
             
-            setTimeout(() => {
-                renderPipelineGraph(stats.lead_status_counts);
-            }, 50);
+            renderPipelineGraph(stats.lead_status_counts);
         }
 
         function renderPipelineGraph(counts) {
