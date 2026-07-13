@@ -3,6 +3,8 @@ import json
 import time
 import random
 import csv
+import requests
+import base64
 from io import StringIO
 from threading import Lock
 from flask import Flask, Blueprint, render_template_string, request, jsonify, session, redirect, url_for
@@ -15,47 +17,103 @@ app.secret_key = os.urandom(24)
 
 script34_bp = Blueprint('script34', __name__)
 
+# GitHub Integration Configs (Render Env Variables से उठाएगा)
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+GITHUB_REPO = os.environ.get('GITHUB_REPO', '')  # Format: "username/repo"
+GITHUB_BRANCH = os.environ.get('GITHUB_BRANCH', 'main')
 DATA_FILE = 'crm_data.json'
+
 AUTH_USER = 'admin'
 AUTH_PASS = '5hsuusu78@#/@&hsb' 
 
-# Thread Lock for preventing JSON file corruption during high concurrency
 db_lock = Lock()
 
 # =========================================================================
-# DATABASE CORE (SAFE NO-SQL JSON SCHEMATICS ENGINE)
+# GITHUB STORAGE ENGINE (NO-MORE LOSS OF DATA ON SERVER RESTART)
 # =========================================================================
-def init_db():
-    if not os.path.exists(DATA_FILE):
-        initial_structure = {
-            'leads': [
-                {"id": 1, "name": "Rahul Sharma", "email": "rahul@example.com", "phone": "+919876543210", "company": "Sharma Tech", "status": "New", "value": 45000, "date": "2026-07-10"},
-                {"id": 2, "name": "Amit Verma", "email": "amit@example.com", "phone": "+918765432109", "company": "Verma Digital", "status": "Contacted", "value": 120000, "date": "2026-07-11"}
-            ],
-            'customers': [
-                {"id": 3, "name": "Priya Singh", "email": "priya@example.com", "phone": "+917654321098", "company": "Singh Org", "revenue": 150000, "joined_date": "2026-07-11"}
-            ],
-            'tasks': [
-                {"id": 1, "title": "Setup Marketing Automation Gateway", "due_date": "2026-07-15", "priority": "High", "status": "Pending"}
-            ],
-            'automation_queue': []
-        }
-        with open(DATA_FILE, 'w') as f:
-            json.dump(initial_structure, f, indent=4)
+def get_default_structure():
+    return {
+        'leads': [
+            {"id": 1, "name": "Rahul Sharma", "email": "rahul@example.com", "phone": "+919876543210", "company": "Sharma Tech", "status": "New", "value": 45000, "date": "2026-07-10"},
+            {"id": 2, "name": "Amit Verma", "email": "amit@example.com", "phone": "+918765432109", "company": "Verma Digital", "status": "Contacted", "value": 120000, "date": "2026-07-11"}
+        ],
+        'customers': [
+            {"id": 3, "name": "Priya Singh", "email": "priya@example.com", "phone": "+917654321098", "company": "Singh Org", "revenue": 150000, "joined_date": "2026-07-11"}
+        ],
+        'tasks': [
+            {"id": 1, "title": "Setup Marketing Automation Gateway", "due_date": "2026-07-15", "priority": "High", "status": "Pending"}
+        ],
+        'automation_queue': []
+    }
 
 def db_read():
-    init_db()
+    """GitHub API से फाइल का डेटा फेच करता है"""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        # अगर टोकन सेट नहीं है, तो सेफ्टी के लिए लोकल फाइल पर फॉलबैक करेगा
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'r') as f:
+                try: return json.load(f)
+                except: return get_default_structure()
+        return get_default_structure()
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}?ref={GITHUB_BRANCH}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    
     with db_lock:
-        with open(DATA_FILE, 'r') as f:
-            try:
-                return json.load(f)
-            except:
-                return { 'leads': [], 'customers': [], 'tasks': [], 'automation_queue': [] }
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                content_b64 = res.json()['content']
+                content_str = base64.b64decode(content_b64).decode('utf-8')
+                return json.loads(content_str)
+            elif res.status_code == 404:
+                # अगर GitHub पर फाइल नहीं है, तो डिफॉल्ट स्ट्रक्चर अपलोड कर देगा
+                default_data = get_default_structure()
+                db_write_raw(default_data, None)
+                return default_data
+        except Exception as e:
+            print(f"GitHub Read Error: {e}")
+            
+    return get_default_structure()
 
 def db_write(data):
-    with db_lock:
+    """GitHub API पर डेटा पुश (Commit) करता है"""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
+        return
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    
+    with db_lock:
+        try:
+            # फाइल का 'sha' टोकन लेने के लिए पहले GET रिक्वेस्ट मारनी पड़ती है
+            sha = None
+            res_get = requests.get(f"{url}?ref={GITHUB_BRANCH}", headers=headers, timeout=10)
+            if res_get.status_code == 200:
+                sha = res_get.json()['sha']
+            
+            db_write_raw(data, sha)
+        except Exception as e:
+            print(f"GitHub Write Setup Error: {e}")
+
+def db_write_raw(data, sha):
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    
+    content_str = json.dumps(data, indent=4)
+    content_b64 = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+    
+    payload = {
+        "message": "CRM Database Auto-Sync Update",
+        "content": content_b64,
+        "branch": GITHUB_BRANCH
+    }
+    if sha:
+        payload["sha"] = sha
+        
+    requests.put(url, headers=headers, json=payload, timeout=10)
 
 # =========================================================================
 # MIDDLEWARE ENGINE
@@ -104,7 +162,6 @@ def get_dashboard_stats():
     total_revenue = sum(float(c.get('revenue', 0) or 0) for c in customers)
     high_value_leads_count = len([l for l in leads if float(l.get('value', 0) or 0) >= 100000])
     
-    # ADVANCED FEATURE: Win Rate & Pipeline Conversion Analytics
     total_pipeline_entities = leads_count + len(customers)
     win_rate = (len(customers) / total_pipeline_entities * 100) if total_pipeline_entities > 0 else 0
 
@@ -285,7 +342,7 @@ def process_lead_automation():
     return jsonify({'success': True, 'message': f'Successfully deployed {imported_count} leads to broadcast engine.'})
 
 # =========================================================================
-# INTERLINKED CSV WORKFLOW UPLOADER (CRITICAL BUG FIXED - FORCED PERSISTENCE)
+# INTERLINKED CSV WORKFLOW UPLOADER (DIRECT GITHUB INGESTION)
 # =========================================================================
 @script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
@@ -301,7 +358,6 @@ def upload_automation_sheet():
         stream = StringIO(file.stream.read().decode("UTF-8"), newline=None)
         csv_input = csv.reader(stream)
         
-        # Fresh read to avoid any out-of-sync cache or thread issues
         db = db_read()
         imported_count = 0
         
@@ -317,7 +373,6 @@ def upload_automation_sheet():
 
         current_timestamp = int(time.time())
 
-        # Ensure schema keys exist completely before push operations
         if 'automation_queue' not in db: db['automation_queue'] = []
         if 'leads' not in db: db['leads'] = []
 
@@ -359,7 +414,6 @@ def upload_automation_sheet():
             })
             imported_count += 1
             
-        # Hard commit directly using the engine wrapper
         db_write(db)
         return jsonify({'success': True, 'message': f'Successfully parsed {imported_count} contacts & perfectly linked into Pipeline system!'})
         
@@ -367,9 +421,7 @@ def upload_automation_sheet():
 
 app.register_blueprint(script34_bp, url_for_security='/')
 
-# =========================================================================
-# SYSTEM UI TEMPLATE SCHEMATICS
-# =========================================================================
+# HTML UI Layout Script
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
@@ -453,7 +505,6 @@ HTML_LAYOUT = """
     </div>
 
     <div class="min-h-screen flex flex-col md:flex-row relative">
-        
         <!-- SIDEBAR -->
         <aside id="sidebar-container" class="hidden md:flex fixed md:sticky top-[53px] md:top-0 left-0 bottom-0 w-full md:w-64 bg-gray-950 text-white flex-col border-r border-gray-900 z-40 transition-all duration-300 overflow-y-auto">
             <div class="p-6 border-b border-gray-900 hidden md:flex items-center gap-3">
@@ -481,8 +532,6 @@ HTML_LAYOUT = """
 
         <!-- MAIN CONTAINER -->
         <main class="flex-1 p-4 md:p-8 overflow-y-auto max-h-screen w-full">
-            
-            <!-- Toast Box -->
             <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 bg-gray-900 border border-emerald-500/30 text-white px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 transition-all duration-300">
                 <i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i> <span id="toast-text" class="text-sm font-semibold"></span>
             </div>
@@ -499,7 +548,7 @@ HTML_LAYOUT = """
                           <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                           <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                         </span>
-                        Live Sync: Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
+                        GitHub Sync Server Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
                     </div>
                 </div>
                 
@@ -759,7 +808,6 @@ HTML_LAYOUT = """
         </div>
     </div>
 
-    <!-- JAVASCRIPT APPLICATION LOGIC ENGINE -->
     <script>
         let activeTab = 'dashboard';
         let rawLeads = [];
@@ -1197,5 +1245,5 @@ HTML_LAYOUT = """
 # APPLICATION GATEWAY INITIALIZATION RUNNER
 # =========================================================================
 if __name__ == '__main__':
-    init_db()
     app.run(debug=True, port=5000)
+
