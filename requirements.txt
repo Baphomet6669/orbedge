@@ -12,3 +12,4 @@ openpyxl
 Pillow
 matplotlib
 python-dotenv
+Jinja2
