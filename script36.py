@@ -1,11 +1,12 @@
-from flask import Flask, render_template_string, request, jsonify
+from flask import Blueprint, render_template_string, request, jsonify
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
 
-app = Flask(__name__)
+# Blueprint create kiya jise app.py register karega
+script36_bp = Blueprint('script36', __name__)
 
-# 1. High DA Websites Suggestion List
+# High DA Websites Suggestion List
 POTENTIAL_BACKLINK_SOURCES = [
     {"site": "github.com", "type": "Profile / Project Backlink", "difficulty": "Easy"},
     {"site": "medium.com", "type": "Article / Blog Backlink", "difficulty": "Medium"},
@@ -46,7 +47,7 @@ def find_existing_backlinks(target_domain):
     except Exception as e:
         return {"error": str(e)}
 
-# Modern UI Dashboard Dashboard for Script36
+# Modern UI Dashboard for Script36
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -171,7 +172,6 @@ HTML_TEMPLATE = '''
         <div class="loading" id="loader">🌐 Analyzing Google index & footprints... Please wait...</div>
 
         <div class="grid" id="resultsGrid" style="display: none;">
-            <!-- Table 1: Current Backlinks -->
             <div class="card">
                 <h2 style="color: var(--success);">🎯 Existing Backlinks</h2>
                 <div style="overflow-x:auto;">
@@ -187,7 +187,6 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
 
-            <!-- Table 2: Suggestions -->
             <div class="card">
                 <h2 style="color: var(--warning);">🚀 Opportunities to Build</h2>
                 <div style="overflow-x:auto;">
@@ -231,7 +230,6 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
-                // Render Table 1: Existing
                 const existingBody = document.getElementById('existingTableBody');
                 existingBody.innerHTML = '';
                 if(data.current_backlinks_found.length === 0) {
@@ -242,7 +240,6 @@ HTML_TEMPLATE = '''
                     });
                 }
 
-                // Render Table 2: Suggestions
                 const suggestedBody = document.getElementById('suggestedTableBody');
                 suggestedBody.innerHTML = '';
                 data.where_to_create_suggestions.forEach(item => {
@@ -265,11 +262,12 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-@app.route('/')
+# Routes tied to Blueprint
+@script36_bp.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route('/check-backlinks', methods=['POST'])
+@script36_bp.route('/check-backlinks', methods=['POST'])
 def check_backlinks():
     target_domain = request.form.get('domain').strip().lower()
     target_domain = target_domain.replace("https://", "").replace("http://", "").replace("www.", "").split('/')[0]
@@ -289,7 +287,3 @@ def check_backlinks():
         "current_backlinks_found": current_backlinks,
         "where_to_create_suggestions": suggested_backlinks
     })
-
-if __name__ == '__main__':
-    app.run(debug=True)
-
