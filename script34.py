@@ -421,7 +421,7 @@ def upload_automation_sheet():
 
 app.register_blueprint(script34_bp, url_for_security='/')
 
-# HTML UI Layout Script
+# HTML UI Layout Script (Excel, PDF Export & Tracking Markers Added Seamlessly)
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
@@ -432,6 +432,11 @@ HTML_LAYOUT = """
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Heavy-Duty Client-Side Export Dependencies (Bypasses Server Load) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=300;400;500;600;700;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; transition: background-color 0.3s, color 0.3s; }
@@ -531,7 +536,7 @@ HTML_LAYOUT = """
         </aside>
 
         <!-- MAIN CONTAINER -->
-        <main class="flex-1 p-4 md:p-8 overflow-y-auto max-h-screen w-full">
+        <main class="flex-1 p-4 md:p-8 overflow-y-auto max-h-screen w-full" id="exportable-main-area">
             <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 bg-gray-900 border border-emerald-500/30 text-white px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 transition-all duration-300">
                 <i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i> <span id="toast-text" class="text-sm font-semibold"></span>
             </div>
@@ -543,12 +548,22 @@ HTML_LAYOUT = """
                         <h1 class="text-2xl font-bold text-custom-main">Main Command Dashboard</h1>
                         <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
                     </div>
-                    <div class="bg-indigo-500/10 text-indigo-500 px-4 py-2 rounded-xl text-xs font-bold border border-indigo-500/20 flex items-center gap-2">
-                        <span class="flex h-2 w-2 relative">
-                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                        </span>
-                        GitHub Sync Server Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
+                    
+                    <!-- Advanced Document Exports -->
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button onclick="exportFullCRMDataToExcel()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md">
+                            <i class="fa-solid fa-file-excel"></i> Export XLSX Reports
+                        </button>
+                        <button onclick="exportFullCRMToPDF()" class="bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md">
+                            <i class="fa-solid fa-file-pdf"></i> Export PDF Dashboard
+                        </button>
+                        <div class="bg-indigo-500/10 text-indigo-500 px-4 py-2 rounded-xl text-xs font-bold border border-indigo-500/20 flex items-center gap-2">
+                            <span class="flex h-2 w-2 relative">
+                              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            GitHub Sync Server Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -1112,6 +1127,24 @@ HTML_LAYOUT = """
             renderAutomationTable();
         }
 
+        // =========================================================================
+        // WHATSAPP & MAIL PIN SYSTEM LOGIC
+        // =========================================================================
+        function getDispatchLog() {
+            try {
+                return JSON.parse(localStorage.getItem('crm_dispatch_pins') || '{}');
+            } catch {
+                return {};
+            }
+        }
+
+        function markDispatched(id, channel) {
+            let logs = getDispatchLog();
+            logs[id] = { channel: channel, timestamp: new Date().toLocaleTimeString() };
+            localStorage.setItem('crm_dispatch_pins', JSON.stringify(logs));
+            renderAutomationTable();
+        }
+
         function renderAutomationTable() {
             let tbody = document.getElementById('automation-queue-body');
             tbody.innerHTML = '';
@@ -1119,18 +1152,35 @@ HTML_LAYOUT = """
                 tbody.innerHTML = `<tr><td colspan="3" class="p-6 text-center text-gray-500 font-medium">No records inside the queue dashboard grid.</td></tr>`;
                 return;
             }
+
+            let dispatchPins = getDispatchLog();
+
             rawAutomation.forEach(item => {
                 let encodedText = encodeURIComponent(item.message);
                 let waLink = `https://api.whatsapp.com/send?phone=${item.phone}&text=${encodedText}`;
                 let mailLink = `mailto:${item.email}?subject=Broadcast&body=${encodedText}`;
 
+                // Sent Tracking Pin Configuration
+                let dispatchInfo = dispatchPins[item.id];
+                let pinHtml = '';
+                if (dispatchInfo) {
+                    let pinColor = dispatchInfo.channel === 'whatsapp' ? 'text-rose-500' : 'text-red-600';
+                    let pinTitle = `Sent via ${dispatchInfo.channel.toUpperCase()} at ${dispatchInfo.timestamp}`;
+                    pinHtml = `<span class="ml-1.5 inline-flex items-center" title="${pinTitle}"><i class="fa-solid fa-location-pin ${pinColor} animate-bounce text-[14px]"></i></span>`;
+                }
+
                 tbody.innerHTML += `
                 <tr class="hover:bg-gray-500/5 transition border-b border-custom text-xs">
-                    <td class="p-3 font-semibold text-custom-main"><div class="font-bold">${item.name}</div><div class="text-[10px] text-custom-muted mt-0.5">${item.phone}</div></td>
+                    <td class="p-3 font-semibold text-custom-main">
+                        <div class="flex items-center font-bold">
+                            ${item.name} ${pinHtml}
+                        </div>
+                        <div class="text-[10px] text-custom-muted mt-0.5">${item.phone}</div>
+                    </td>
                     <td class="p-3 text-custom-muted max-w-[220px] truncate" title="${item.message}">${item.message}</td>
                     <td class="p-3 text-right space-x-1 whitespace-nowrap">
-                        <a href="${waLink}" target="_blank" class="inline-flex items-center gap-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 px-2 py-0.5 rounded text-[10px] font-bold transition"><i class="fa-brands fa-whatsapp"></i> Chat</a>
-                        <a href="${mailLink}" class="inline-flex items-center gap-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold transition"><i class="fa-solid fa-envelope"></i> Email</a>
+                        <a href="${waLink}" target="_blank" onclick="markDispatched('${item.id}', 'whatsapp')" class="inline-flex items-center gap-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 px-2 py-0.5 rounded text-[10px] font-bold transition"><i class="fa-brands fa-whatsapp"></i> Chat</a>
+                        <a href="${mailLink}" onclick="markDispatched('${item.id}', 'email')" class="inline-flex items-center gap-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold transition"><i class="fa-solid fa-envelope"></i> Email</a>
                     </td>
                 </tr>`;
             });
@@ -1169,7 +1219,12 @@ HTML_LAYOUT = """
         async function clearAutomationLogs() {
             if(!confirm("Flush records?")) return;
             let res = await fetchAPI('clear_automation_queue');
-            if (res && res.success) { popToast("Queue reset."); loadAutomationEngine(); }
+            if (res && res.success) { 
+                // LocalStorage pins register ko bhi clear kar dete hain safety ke liye
+                localStorage.removeItem('crm_dispatch_pins');
+                popToast("Queue reset."); 
+                loadAutomationEngine(); 
+            }
         }
 
         async function loadTasksEngine() {
@@ -1235,6 +1290,81 @@ HTML_LAYOUT = """
             let link = document.createElement("a"); link.setAttribute("href", encodeURI("data:text/csv;charset=utf-8," + csv));
             link.setAttribute("download", "CRM_Leads.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
         }
+
+        // =========================================================================
+        // HIGH PERFORMANCE CLIENT EXPORT ENGINES (XLSX & PDF GENERATION)
+        // =========================================================================
+        async function exportFullCRMDataToExcel() {
+            try {
+                let stats = await fetchAPI('get_dashboard_stats') || {};
+                let leads = await fetchAPI('get_leads') || [];
+                let customers = await fetchAPI('get_customers') || [];
+                let tasks = await fetchAPI('get_tasks') || [];
+
+                let wb = XLSX.utils.book_new();
+
+                // Sheet 1: General Stats & Metric Summary Overview
+                let summaryData = [
+                    ["KPI / Metrics Parameter", "Registry Values"],
+                    ["Total Leads Captured", stats.total_leads || leads.length],
+                    ["Active Customers Converted", stats.total_customers || customers.length],
+                    ["Uncompleted Objectives", stats.pending_tasks || 0],
+                    ["Pipeline Valuation Pool", stats.total_pipeline_value || 0],
+                    ["Average Active Deal Size", stats.average_deal_size || 0],
+                    ["Aggregate Gross Revenue Pool", stats.total_revenue_pool || 0],
+                    ["Conversion Velocity Rate (%)", `${stats.win_rate || 0}%`]
+                ];
+                let wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+                XLSX.utils.book_append_sheet(wb, wsSummary, "Dashboard Overview");
+
+                // Sheet 2: Leads Registry Datatable 
+                let leadsData = [["Database ID", "Client Name", "Corporate Company", "Email Link", "Mobile Contact", "Funnel Status", "Est Value", "Date Created"]];
+                leads.forEach(l => {
+                    leadsData.push([l.id, l.name, l.company || "N/A", l.email, l.phone, l.status, l.value, l.date]);
+                });
+                let wsLeads = XLSX.utils.aoa_to_sheet(leadsData);
+                XLSX.utils.book_append_sheet(wb, wsLeads, "Leads Matrix");
+
+                // Sheet 3: Converted Customer Database Records
+                let customerData = [["Database ID", "Customer Entity Name", "Corporate Company", "Email ID", "Mobile Contact", "Calculated Revenue Generated", "Retention Date"]];
+                customers.forEach(c => {
+                    customerData.push([c.id, c.name, c.company || "N/A", c.email, c.phone, c.revenue, c.joined_date]);
+                });
+                let wsCustomers = XLSX.utils.aoa_to_sheet(customerData);
+                XLSX.utils.book_append_sheet(wb, wsCustomers, "Active Customers");
+
+                // Save Workbook Output Link
+                XLSX.writeFile(wb, `CRM_System_Export_Metrics_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                popToast("Excel Database Compiled Successfully!");
+            } catch (err) {
+                console.error("Critical Excel Packaging Exception:", err);
+                alert("Failed to export Excel report sheets.");
+            }
+        }
+
+        async function exportFullCRMToPDF() {
+            const mainContainer = document.getElementById('exportable-main-area');
+            if (!mainContainer) return alert("System Anchor reference broken down.");
+            
+            popToast("Preparing High-Res Executive PDF document structure...");
+
+            // Optimal configuration logic keeping canvas and graphs completely readable
+            let pdfOptions = {
+                margin: [10, 10, 10, 10],
+                filename: `OrbitEdge_CRM_Executive_Summary_${new Date().toISOString().slice(0,10)}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { 
+                    scale: 2, 
+                    useCORS: true, 
+                    backgroundColor: document.body.classList.contains('dark-mode') ? '#030712' : '#f3f4f6' 
+                },
+                jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' }
+            };
+
+            html2pdf().set(pdfOptions).from(mainContainer).save().then(() => {
+                popToast("Executive PDF Export completed!");
+            });
+        }
     </script>
 {% endif %}
 </body>
@@ -1246,4 +1376,3 @@ HTML_LAYOUT = """
 # =========================================================================
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
-
