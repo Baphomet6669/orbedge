@@ -1,110 +1,158 @@
 import os
-import json
+import smtplib
+import imaplib
+import email
+import re
+import time
+import threading
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from flask import Blueprint, render_template_string, request, jsonify
 
-# 1. DEFINE THE BLUEPRINT FOR CORE ROUTER
+# 1. BLUEPRINT CONFIGURATION
 script38_bp = Blueprint('script38', __name__, static_folder='static')
 
-COMPANY_NAME = os.environ.get('COMPANY_NAME', 'Delta Capital Suite')
+COMPANY_NAME = os.environ.get('COMPANY_NAME', 'Delta Agency Suite')
+DEFAULT_MAILBOX = "shivam@yourdomain.com" # Apne actual configured custom email se badlein
 
-# Comprehensive Financial Ratios Dictionary containing A-Z Data Structures
-RATIO_DATABASE = {
-    "pe_ratio": {
-        "name": "Price-to-Earnings (P/E) Ratio",
-        "category": "Valuation Ratios",
-        "explanation": "P/E ratio batata hai ki company ke ₹1 kamane ke liye investors kitna paisa dene ko tayar hain. Agar P/E industry average se bohot zyada hai, toh stock overvalued ho sakta hai, aur agar kam hai toh undervalued.",
-        "formula": "$$\\text{P/E Ratio} = \\frac{\\text{Market Price Per Share}}{\\text{Earnings Per Share (EPS)}}$$",
-        "example": "Maan lo Reliance ka share price ₹2,500 hai aur uska EPS ₹100 hai. Toh P/E Ratio = 2500 / 100 = 25. Yaani aap ₹1 ki earning ke liye ₹25 pay kar rahe ho.",
-        "inputs": [
-            {"id": "pe_price", "label": "Market Price per Share (₹)", "placeholder": "e.g. 2500"},
-            {"id": "pe_eps", "label": "Earnings Per Share / EPS (₹)", "placeholder": "e.g. 100"}
-        ],
-        "calc_script": "return (v.pe_price / v.pe_eps).toFixed(2) + 'x';"
-    },
-    "pb_ratio": {
-        "name": "Price-to-Book (P/B) Ratio",
-        "category": "Valuation Ratios",
-        "explanation": "P/B ratio yeh compare karta hai ki company ki market value uski actual book value (assets minus liabilities) se kitni zyada hai. Banking aur manufacturing stocks ke liye yeh bohot important ratio hai.",
-        "formula": "$$\\text{P/B Ratio} = \\frac{\\text{Market Price Per Share}}{\\text{Book Value Per Share (BVPS)}}$$",
-        "example": "Agar kisi bank ka share price ₹500 hai aur uski book value ₹250 hai, toh P/B ratio 500 / 250 = 2.0 hoga.",
-        "inputs": [
-            {"id": "pb_price", "label": "Market Price per Share (₹)", "placeholder": "e.g. 500"},
-            {"id": "pb_bvps", "label": "Book Value per Share (₹)", "placeholder": "e.g. 250"}
-        ],
-        "calc_script": "return (v.pb_price / v.pb_bvps).toFixed(2) + 'x';"
-    },
-    "roe": {
-        "name": "Return on Equity (ROE)",
-        "category": "Profitability Ratios",
-        "explanation": "ROE yeh batata hai ki company shareholders ke paise (Equity) par kitna percent profit generate kar pa rahi hai. 15% se upar ka ROE generally achha maana jaata hai.",
-        "formula": "$$\\text{ROE (\\%)} = \\left( \\frac{\\text{Net Income}}{\\text{Shareholders' Equity}} \\right) \\times 100$$",
-        "example": "Company ne ₹15 Crore ka net profit kamaya, aur shareholders ki total equity ₹100 Crore thi. Toh ROE = (15 / 100) * 100 = 15%.",
-        "inputs": [
-            {"id": "roe_income", "label": "Net Income (₹ in Crores)", "placeholder": "e.g. 15"},
-            {"id": "roe_equity", "label": "Shareholders' Equity (₹ in Crores)", "placeholder": "e.g. 100"}
-        ],
-        "calc_script": "return ((v.roe_income / v.roe_equity) * 100).toFixed(2) + '%';"
-    },
-    "roce": {
-        "name": "Return on Capital Employed (ROCE)",
-        "category": "Profitability Ratios",
-        "explanation": "ROCE batata hai ki company apne total capital (Equity + Debt/Karza) par kitna return generate kar rahi hai. Capital-heavy companies ke liye yeh ROE se zyada accurate picture deta hai.",
-        "formula": "$$\\text{ROCE (\\%)} = \\left( \\frac{\\text{EBIT}}{\\text{Total Capital Employed}} \\right) \\times 100$$",
-        "example": "Company ka Operating Profit (EBIT) ₹20 Crore hai, total capital employed ₹100 Crore hai. ROCE = (20 / 100) * 100 = 20%.",
-        "inputs": [
-            {"id": "roce_ebit", "label": "EBIT / Operating Profit (₹ in Crores)", "placeholder": "e.g. 20"},
-            {"id": "roce_capital", "label": "Capital Employed (Assets - Current Liab.)", "placeholder": "e.g. 100"}
-        ],
-        "calc_script": "return ((v.roce_ebit / v.roce_capital) * 100).toFixed(2) + '%';"
-    },
-    "debt_equity": {
-        "name": "Debt-to-Equity Ratio",
-        "category": "Leverage / Debt Ratios",
-        "explanation": "Yeh ratio batata hai ki company par equity ke mukable kitna karza (debt) hai. Generally, Debt-to-Equity ratio 1 se kam hona chahiye. Agar yeh zyada hai, toh company risky ho sakti hai.",
-        "formula": "$$\\text{Debt to Equity} = \\frac{\\text{Total Debt (Liabilities)}}{\\text{Total Shareholders' Equity}}$$",
-        "example": "Company ke paas ₹40 Crore ka total debt hai aur ₹80 Crore ki equity hai. Debt-to-Equity = 40 / 80 = 0.5 (Safe zone).",
-        "inputs": [
-            {"id": "de_debt", "label": "Total Debt (₹ in Crores)", "placeholder": "e.g. 40"},
-            {"id": "de_equity", "label": "Total Equity (₹ in Crores)", "placeholder": "e.g. 80"}
-        ],
-        "calc_script": "return (v.de_debt / v.de_equity).toFixed(2);"
-    },
-    "current_ratio": {
-        "name": "Current Ratio",
-        "category": "Liquidity Ratios",
-        "explanation": "Current Ratio batata hai ki kya company ke paas agle 1 saal mein aane wali short-term liabilities ko chukane ke liye kaafi current assets hain ya nahi. Ideal ratio 2:1 maana jaata hai.",
-        "formula": "$$\\text{Current Ratio} = \\frac{\\text{Current Assets}}{\\text{Current Liabilities}}$$",
-        "example": "Company ke pass short-term assets ₹200 Crore hain aur short-term liabilities ₹100 Crore hain. Current Ratio = 200 / 100 = 2.0.",
-        "inputs": [
-            {"id": "curr_assets", "label": "Total Current Assets (₹)", "placeholder": "e.g. 200"},
-            {"id": "curr_liab", "label": "Total Current Liabilities (₹)", "placeholder": "e.g. 100"}
-        ],
-        "calc_script": "return (v.curr_assets / v.curr_liab).toFixed(2);"
-    }
-}
+class ApexEmailTerminal:
+    def __init__(self, smtp_host, smtp_port, imap_host, imap_port, email_user, email_pass):
+        self.smtp_host = smtp_host
+        self.smtp_port = int(smtp_port)
+        self.imap_host = imap_host
+        self.imap_port = int(imap_port)
+        self.user = email_user
+        self.password = email_pass
+
+    def send_mail(self, to_email, subject, html_content):
+        """Sends an outgoing email using configured SMTP settings"""
+        try:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = self.user
+            msg['To'] = to_email
+            msg.attach(MIMEText(html_content, 'html'))
+            
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
+                server.starttls()
+                server.login(self.user, self.password)
+                server.sendmail(self.user, to_email, msg.as_string())
+            return {"success": True, "message": "Email dispatched successfully!"}
+        except Exception as e:
+            return {"success": False, "message": f"SMTP Error: {str(e)}"}
+
+    def fetch_inbox(self, limit=10):
+        """Connects via IMAP to read recently received emails"""
+        received_mails = []
+        try:
+            mail = imaplib.IMAP4_SSL(self.imap_host, self.imap_port, timeout=10)
+            mail.login(self.user, self.password)
+            mail.select("inbox")
+            
+            # Fetch last 'limit' messages
+            status, messages = mail.search(None, "ALL")
+            if status == "OK" and messages[0]:
+                mail_ids = messages[0].split()
+                # Get the latest emails first
+                for i in reversed(mail_ids[-limit:]):
+                    res, data = mail.fetch(i, "(RFC822)")
+                    if res == "OK" and data[0]:
+                        msg = email.message_from_bytes(data[0][1])
+                        
+                        subject = msg.get("Subject", "(No Subject)")
+                        sender = msg.get("From", "(Unknown)")
+                        date_received = msg.get("Date", "")
+                        
+                        # Extract text or HTML body
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                content_type = part.get_content_type()
+                                if content_type == "text/plain" or content_type == "text/html":
+                                    payload = part.get_payload(decode=True)
+                                    if payload:
+                                        body = payload.decode(errors='ignore')
+                                        break
+                        else:
+                            payload = msg.get_payload(decode=True)
+                            if payload:
+                                body = payload.decode(errors='ignore')
+                        
+                        # Clean body preview
+                        body_preview = re.sub('<[^<]+?>', '', body)[:150] + "..." if "<" in body else body[:150]
+                        
+                        received_mails.append({
+                            "id": i.decode(),
+                            "from": sender,
+                            "subject": subject,
+                            "date": date_received,
+                            "preview": body_preview.strip()
+                        })
+            mail.close()
+            mail.logout()
+        except Exception as e:
+            # Fallback error response
+            received_mails.append({
+                "id": "error",
+                "from": "System Engine",
+                "subject": "Connection Timeout / Setup Incomplete",
+                "date": "Now",
+                "preview": f"Could not connect to IMAP. Ensure secure credentials and app-password are active. Error: {str(e)}"
+            })
+        return received_mails
 
 @script38_bp.route('/')
 def index():
-    # Pass structural payload to the template renderer
-    return render_template_string(HTML_LAYOUT, company=COMPANY_NAME, database=RATIO_DATABASE)
+    return render_template_string(HTML_LAYOUT, company=COMPANY_NAME, default_mail=DEFAULT_MAILBOX)
 
-@script38_bp.route('/api/ratio-data', methods=['GET'])
-def get_ratio_data():
-    return jsonify(RATIO_DATABASE)
+@script38_bp.route('/api/send', methods=['POST'])
+def api_send():
+    data = request.json or {}
+    smtp_host = data.get('smtp_host', 'smtp.gmail.com')
+    smtp_port = data.get('smtp_port', 587)
+    imap_host = data.get('imap_host', 'imap.gmail.com')
+    imap_port = data.get('imap_port', 993)
+    user = data.get('email_user')
+    password = data.get('email_pass')
+    
+    to = data.get('to')
+    subject = data.get('subject')
+    body = data.get('body')
+    
+    if not all([user, password, to, subject, body]):
+        return jsonify({"success": False, "message": "Missing credentials or message fields."}), 400
+        
+    engine = ApexEmailTerminal(smtp_host, smtp_port, imap_host, imap_port, user, password)
+    result = engine.send_mail(to, subject, f"<html><body>{body}</body></html>")
+    return jsonify(result)
 
-# DYNAMIC CYBERPUNK FIN-TECH ENGINE INTERFACE
+@script38_bp.route('/api/receive', methods=['POST'])
+def api_receive():
+    data = request.json or {}
+    smtp_host = data.get('smtp_host', 'smtp.gmail.com')
+    smtp_port = data.get('smtp_port', 587)
+    imap_host = data.get('imap_host', 'imap.gmail.com')
+    imap_port = data.get('imap_port', 993)
+    user = data.get('email_user')
+    password = data.get('email_pass')
+    
+    if not user or not password:
+        return jsonify({"success": False, "message": "Credentials needed to poll inbox."}), 400
+        
+    engine = ApexEmailTerminal(smtp_host, smtp_port, imap_host, imap_port, user, password)
+    emails = engine.fetch_inbox()
+    return jsonify({"success": True, "emails": emails})
+
+# BLACK-TECH MINIMAL CYBERPUNK EMAIL CLIENT UI
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ company }} | Fundamental Analytics Terminal</title>
+    <title>{{ company }} | Mail Terminal</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- MathJax for rendering ultra professional academic equations -->
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
         body { 
@@ -112,119 +160,105 @@ HTML_LAYOUT = """
             background-color: #060913; 
             color: #f1f5f9;
         }
-        .fin-card {
-            background: #0b132b;
-            border: 1px solid #1c2541;
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
-        }
-        .glow-cyan {
-            box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
-        }
-        .ratio-btn.active {
-            background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-            color: #060913;
-            font-weight: 700;
-            box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+        .cyber-card {
+            background: #0f172a;
+            border: 1px solid #1e293b;
         }
     </style>
 </head>
-<body class="antialiased selection:bg-cyan-500 selection:text-slate-900">
+<body class="antialiased selection:bg-emerald-500 selection:text-slate-900">
 
     <div class="min-h-screen flex flex-col lg:flex-row">
-        <!-- Sidebar Navigation -->
+        <!-- Configurations Sidebar -->
         <aside class="w-full lg:w-80 bg-slate-950 flex flex-col border-b lg:border-r border-slate-900 p-6">
             <div class="flex items-center gap-3 mb-8">
-                <div class="p-3 bg-gradient-to-br from-cyan-500 to-cyan-700 rounded-xl shadow-lg glow-cyan">
-                    <i class="fa-solid fa-chart-pie text-xl text-slate-950"></i>
+                <div class="p-3 bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-xl shadow-lg">
+                    <i class="fa-solid fa-square-envelope text-xl text-slate-950"></i>
                 </div>
                 <div>
-                    <h2 class="font-bold text-lg tracking-tight text-white leading-none">QuantumRatio</h2>
-                    <span class="text-[10px] text-cyan-400 font-mono uppercase tracking-widest mt-1 block">A-Z RATIO ENGINE v38</span>
+                    <h2 class="font-bold text-lg tracking-tight text-white leading-none">ApexMail</h2>
+                    <span class="text-[10px] text-emerald-400 font-mono uppercase tracking-widest mt-1 block">Full-Duplex v38</span>
                 </div>
             </div>
-            
-            <div class="space-y-6 flex-1 overflow-y-auto pr-1">
-                <div>
-                    <span class="text-[11px] font-mono text-slate-500 uppercase tracking-wider block mb-2">Available Ratios Matrix</span>
-                    <div class="space-y-2" id="ratioMenu">
-                        {% for key, item in database.items() %}
-                        <button onclick="selectRatio('{{ key }}')" id="btn-{{ key }}" class="ratio-btn w-full text-left bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 px-4 py-3 rounded-xl text-xs transition flex justify-between items-center cursor-pointer">
-                            <span>{{ item.name }}</span>
-                            <i class="fa-solid fa-chevron-right text-[10px] opacity-60"></i>
-                        </button>
-                        {% endfor %}
+
+            <div class="space-y-4 flex-1">
+                <div class="p-4 bg-slate-900/50 border border-slate-800 rounded-xl space-y-3">
+                    <span class="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">Authentication Setup</span>
+                    
+                    <div>
+                        <label class="text-[10px] text-slate-500 font-mono block">Custom Email Account</label>
+                        <input type="text" id="emailUser" value="{{ default_mail }}" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 font-mono block">Password / App-Pass</label>
+                        <input type="password" id="emailPass" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none">
+                    </div>
+                    <hr class="border-slate-800">
+                    <div>
+                        <label class="text-[10px] text-slate-500 font-mono block">SMTP Server Host</label>
+                        <input type="text" id="smtpHost" value="smtp.gmail.com" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 font-mono block">SMTP Server Port</label>
+                        <input type="number" id="smtpPort" value="587" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 font-mono block">IMAP Server Host</label>
+                        <input type="text" id="imapHost" value="imap.gmail.com" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 font-mono block">IMAP Server Port</label>
+                        <input type="number" id="imapPort" value="993" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none">
                     </div>
                 </div>
-            </div>
-            
-            <div class="pt-4 border-t border-slate-900 text-center">
-                <span class="text-[10px] text-slate-500 font-mono">Status: Quant Framework Operational</span>
             </div>
         </aside>
 
-        <!-- Main Display Deck -->
-        <main class="flex-1 p-6 lg:p-10 overflow-y-auto">
-            <div class="flex flex-col sm:flex-row justify-between sm:items-center border-b border-slate-900 pb-6 mb-8">
-                <div>
-                    <h1 class="text-3xl font-extrabold tracking-tight text-white">{{ company }}</h1>
-                    <p class="text-sm text-slate-400 mt-1">Advanced A-Z Fundamental Analysis Engine & Mathematical Simulation Terminal</p>
-                </div>
-            </div>
-
-            <!-- Welcome Placeholder State -->
-            <div id="welcomeState" class="fin-card p-12 rounded-2xl text-center border border-slate-800 max-w-2xl mx-auto my-12">
-                <i class="fa-solid fa-circle-nodes text-5xl text-cyan-500 mb-4 animate-pulse"></i>
-                <h3 class="text-xl font-bold text-white mb-2">Fundamental Analytics Active</h3>
-                <p class="text-xs text-slate-400 leading-relaxed">Left sidebar me se kisi bhi Advanced Fundamental Ratio par click karein. Uski complete explanation, formula matrices, production examples, aur instant live calculator right screen par fetch ho jayenge.</p>
-            </div>
-
-            <!-- Active Workbench View Container -->
-            <div id="workbench" class="hidden grid grid-cols-1 xl:grid-cols-12 gap-8">
-                <!-- Ratio Insights -->
-                <div class="xl:col-span-7 space-y-6">
-                    <div class="fin-card p-6 rounded-2xl space-y-4">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <span id="ratioCategory" class="text-[10px] bg-cyan-950 text-cyan-400 font-mono px-2 py-1 rounded border border-cyan-800 uppercase tracking-widest">VALUATION</span>
-                                <h2 id="ratioTitle" class="text-2xl font-bold text-white mt-2">Ratio Title Placeholder</h2>
-                            </div>
-                        </div>
-                        
-                        <hr class="border-slate-800">
-                        
-                        <div>
-                            <h4 class="text-xs font-mono text-slate-400 uppercase tracking-wider mb-2"><i class="fa-solid fa-book-open text-cyan-400 mr-1"></i> Core Explanation (Hindi / English Mixed)</h4>
-                            <p id="ratioDesc" class="text-xs text-slate-300 leading-relaxed bg-slate-950 p-4 rounded-xl border border-slate-900"></p>
-                        </div>
-
-                        <div>
-                            <h4 class="text-xs font-mono text-slate-400 uppercase tracking-wider mb-2"><i class="fa-solid fa-square-root-variable text-cyan-400 mr-1"></i> Mathematical Formula Architecture</h4>
-                            <div id="ratioFormula" class="bg-slate-950 p-4 rounded-xl border border-slate-900 text-center text-cyan-300 text-sm overflow-x-auto">
-                                <!-- Formula targets are injected inside this wrapper -->
-                            </div>
-                        </div>
-
-                        <div>
-                            <h4 class="text-xs font-mono text-slate-400 uppercase tracking-wider mb-2"><i class="fa-solid fa-lightbulb text-cyan-400 mr-1"></i> Production Market Example</h4>
-                            <p id="ratioExample" class="text-xs text-slate-400 leading-relaxed bg-slate-900/40 p-4 rounded-xl border border-slate-800 border-l-2 border-l-cyan-500 italic"></p>
-                        </div>
+        <!-- Main Area -->
+        <main class="flex-1 p-6 lg:p-10 flex flex-col xl:flex-row gap-8">
+            <!-- Outbound (Send Mail) -->
+            <div class="flex-1 space-y-6">
+                <div class="cyber-card p-6 rounded-2xl space-y-4">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                        <i class="fa-solid fa-paper-plane text-emerald-400"></i> Compose Outgoing Signal
+                    </h3>
+                    
+                    <div>
+                        <label class="text-xs text-slate-400 font-mono mb-1 block">Recipient Email (To)</label>
+                        <input type="email" id="sendTo" placeholder="target@client.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
                     </div>
+
+                    <div>
+                        <label class="text-xs text-slate-400 font-mono mb-1 block">Subject Line</label>
+                        <input type="text" id="sendSubject" placeholder="Enterprise Proposition" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
+                    </div>
+
+                    <div>
+                        <label class="text-xs text-slate-400 font-mono mb-1 block">Message Body</label>
+                        <textarea id="sendBody" rows="8" placeholder="Type your dynamic payload here..." class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono"></textarea>
+                    </div>
+
+                    <button onclick="dispatchMail()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl text-xs uppercase tracking-wider transition cursor-pointer">
+                        Transmit Mail Signal
+                    </button>
                 </div>
+            </div>
 
-                <!-- Calculator Dashboard -->
-                <div class="xl:col-span-5">
-                    <div class="fin-card p-6 rounded-2xl space-y-4 sticky top-6">
-                        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2 mb-2">
-                            <i class="fa-solid fa-calculator text-cyan-400"></i> Real-time Quant Calculator
+            <!-- Inbound (Receive Mail Inbox) -->
+            <div class="flex-1 flex flex-col space-y-6">
+                <div class="cyber-card p-6 rounded-2xl flex-1 flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                            <i class="fa-solid fa-inbox text-emerald-400"></i> Signal Receiver Terminal
                         </h3>
-                        
-                        <div id="calcInputsContainer" class="space-y-4">
-                            <!-- Injected inputs dynamic array -->
-                        </div>
+                        <button onclick="refreshInbox()" class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer">
+                            <i class="fa-solid fa-rotate"></i> Poll Inbox
+                        </button>
+                    </div>
 
-                        <div class="bg-slate-950 border border-slate-900 rounded-xl p-5 mt-6 text-center shadow-inner">
-                            <span class="text-[10px] font-mono uppercase text-slate-500 block tracking-widest">Computed Quant Output</span>
-                            <span id="calcOutputValue" class="text-3xl font-black text-cyan-400 tracking-tight block mt-2">0.00</span>
+                    <div id="inboxContainer" class="space-y-3 overflow-y-auto flex-1 max-h-[500px] pr-1">
+                        <div class="text-slate-500 text-xs text-center py-10 font-mono">
+                            Configure Credentials and click "Poll Inbox" to fetch incoming streams.
                         </div>
                     </div>
                 </div>
@@ -233,101 +267,87 @@ HTML_LAYOUT = """
     </div>
 
     <script>
-        let ratioDb = {};
+        async function dispatchMail() {
+            const payload = {
+                smtp_host: document.getElementById('smtpHost').value,
+                smtp_port: document.getElementById('smtpPort').value,
+                email_user: document.getElementById('emailUser').value.trim(),
+                email_pass: document.getElementById('emailPass').value,
+                to: document.getElementById('sendTo').value.trim(),
+                subject: document.getElementById('sendSubject').value.trim(),
+                body: document.getElementById('sendBody').value
+            };
 
-        // Async fetch initial data payload object
-        async function loadDatabase() {
+            if(!payload.email_user || !payload.email_pass || !payload.to) {
+                return alert("Error: Account and Recipient email must be defined!");
+            }
+
             try {
-                const res = await fetch('./api/ratio-data');
-                ratioDb = await res.json();
-            } catch (e) {
-                console.error("Database tracking fault initialized", e);
+                const res = await fetch('./api/send', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                alert(data.message);
+            } catch {
+                alert("Network communication interrupt.");
             }
         }
 
-        function selectRatio(key) {
-            // UI States optimization
-            document.getElementById('welcomeState').classList.add('hidden');
-            document.getElementById('workbench').classList.remove('hidden');
+        async function refreshInbox() {
+            const payload = {
+                imap_host: document.getElementById('imapHost').value,
+                imap_port: document.getElementById('imapPort').value,
+                email_user: document.getElementById('emailUser').value.trim(),
+                email_pass: document.getElementById('emailPass').value,
+            };
 
-            // Reset selection highlights classes
-            document.querySelectorAll('.ratio-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById('btn-' + key).classList.add('active');
-
-            const item = ratioDb[key];
-            if(!item) return;
-
-            // Injections
-            document.getElementById('ratioCategory').innerText = item.category;
-            document.getElementById('ratioTitle').innerText = item.name;
-            document.getElementById('ratioDesc').innerText = item.explanation;
-            
-            // Formula rendering injection safe framework
-            const formulaDiv = document.getElementById('ratioFormula');
-            formulaDiv.innerHTML = item.formula;
-            
-            // Explicitly prompt MathJax to re-parse the newly loaded LaTeX DOM
-            if (window.MathJax) {
-                MathJax.typesetPromise([formulaDiv]);
+            if(!payload.email_user || !payload.email_pass) {
+                return alert("Credentials required to poll mailbox!");
             }
 
-            document.getElementById('ratioExample').innerText = item.example;
+            const container = document.getElementById('inboxContainer');
+            container.innerHTML = `<div class="text-xs text-center text-emerald-400 py-10 font-mono animate-pulse">Syncing incoming mail streams...</div>`;
 
-            // Build dynamic input matrices fields inside dashboard array
-            const inputContainer = document.getElementById('calcInputsContainer');
-            inputContainer.innerHTML = '';
-
-            item.inputs.forEach(input => {
-                const wrapper = document.createElement('div');
-                wrapper.innerHTML = `
-                    <label class="text-xs text-slate-400 font-mono mb-1 block">\${input.label}</label>
-                    <input type="number" id="\${input.id}" placeholder="\${input.placeholder}" oninput="executeRatioCalculation('\${key}')" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
-                `;
-                inputContainer.appendChild(wrapper);
-            });
-
-            // Reset score metrics
-            document.getElementById('calcOutputValue').innerText = '---';
-        }
-
-        function executeRatioCalculation(key) {
-            const item = ratioDb[key];
-            if(!item) return;
-
-            let v = {};
-            let allFilled = true;
-
-            // Gather elements variable state values safely
-            item.inputs.forEach(input => {
-                const el = document.getElementById(input.id);
-                const val = parseFloat(el.value);
-                if(isNaN(val) || val <= 0) {
-                    allFilled = false;
+            try {
+                const res = await fetch('./api/receive', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                
+                if(data.success && data.emails.length > 0) {
+                    container.innerHTML = '';
+                    data.emails.forEach(mail => {
+                        container.innerHTML += `
+                            <div class="p-3 bg-slate-900/60 border border-slate-800 rounded-lg space-y-1">
+                                <div class="flex justify-between text-[11px] text-slate-400">
+                                    <span class="font-bold text-emerald-400 truncate w-36">\${escapeHtml(mail.from)}</span>
+                                    <span>\${mail.date}</span>
+                                </div>
+                                <h4 class="text-xs font-bold text-white truncate">\${escapeHtml(mail.subject)}</h4>
+                                <p class="text-[11px] text-slate-400 leading-normal line-clamp-2">\${escapeHtml(mail.preview)}</p>
+                            </div>
+                        `;
+                    });
+                } else {
+                    container.innerHTML = `<div class="text-xs text-center text-slate-500 py-10 font-mono">No new messages found.</div>`;
                 }
-                v[input.id] = val;
-            });
-
-            const outputDisplay = document.getElementById('calcOutputValue');
-
-            if(!allFilled) {
-                outputDisplay.innerText = '---';
-                return;
-            }
-
-            try {
-                // Dynamically evaluate calculation strategy engine execution safely
-                const calculationFunction = new Function('v', item.calc_script);
-                const result = calculationFunction(v);
-                outputDisplay.innerText = result;
-            } catch (err) {
-                outputDisplay.innerText = 'Error';
+            } catch {
+                container.innerHTML = `<div class="text-xs text-center text-red-400 py-10 font-mono">Connection Refused. Verify IMAP settings.</div>`;
             }
         }
 
-        // Initialize engine lifecycle hook
-        window.addEventListener('DOMContentLoaded', () => {
-            loadDatabase();
-        });
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
     </script>
 </body>
 </html>
