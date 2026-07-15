@@ -26,16 +26,12 @@ db_lock = threading.Lock()
 
 class EnterpriseEmailEngine:
     def __init__(self, smtp_credentials, imap_config=None):
-        """
-        smtp_credentials: List of dicts [{'host', 'port', 'user', 'pass'}] for rotation.
-        """
         self.smtp_pool = smtp_credentials
         self.imap_config = imap_config or {}
         self.blocklist = set()
         self.smtp_index = 0
 
     def get_next_smtp(self):
-        """Rotates through provided SMTP servers to balance load and protect reputation."""
         if not self.smtp_pool:
             return None
         with db_lock:
@@ -61,20 +57,14 @@ class EnterpriseEmailEngine:
         return {"score": score, "status": status, "triggers": found_triggers}
 
     def verify_dns_and_health(self, domain_or_email, check_auth=False):
-        """
-        Verifies MX records. If check_auth is True, it also scans SPF, DKIM, DMARC 
-        records for security/delivery health.
-        """
         domain = domain_or_email.split('@')[-1] if '@' in domain_or_email else domain_or_email
         result = {"valid": False, "spf": "None", "dmarc": "None", "mx": []}
         try:
-            # MX verification
             mx_records = dns.resolver.resolve(domain, 'MX')
             result["mx"] = [str(r.exchange) for r in mx_records]
             result["valid"] = len(result["mx"]) > 0
 
             if check_auth:
-                # SPF check
                 try:
                     spf_records = dns.resolver.resolve(domain, 'TXT')
                     for r in spf_records:
@@ -84,7 +74,6 @@ class EnterpriseEmailEngine:
                 except Exception:
                     pass
                 
-                # DMARC check
                 try:
                     dmarc_records = dns.resolver.resolve(f'_dmarc.{domain}', 'TXT')
                     for r in dmarc_records:
@@ -98,7 +87,6 @@ class EnterpriseEmailEngine:
         return result
 
     def sync_bounces(self):
-        """Scans specified IMAP folder to auto-harvest bounces/unsubscribes into blocklist."""
         if not self.imap_config or not self.imap_config.get('host'):
             return 0
         try:
@@ -142,13 +130,11 @@ class EnterpriseEmailEngine:
             with db_lock: logs.append({"email": email_addr, "status": "Failed (Invalid MX/Domain)"})
             return
             
-        # Pacing throttling
         base_delay = 1.0
         if index > 0 and index % 5 == 0:
             base_delay += 2.0
         time.sleep(base_delay)
         
-        # Pull rotated server
         smtp_profile = self.get_next_smtp()
         if not smtp_profile:
             with db_lock: logs.append({"email": email_addr, "status": "Failed (No Active SMTP Configuration)"})
@@ -158,7 +144,6 @@ class EnterpriseEmailEngine:
             template = Template(template_str)
             html_body = template.render(name=name, email=email_addr)
             
-            # Simple embedded pixel simulation tracker
             tracking_pixel = f'<img src="https://{COMPANY_NAME.lower().replace(" ", "")}.com/track/{tracking_id}?u={email_addr}" width="1" height="1" style="display:none;" />'
             html_body += tracking_pixel
 
@@ -179,7 +164,7 @@ class EnterpriseEmailEngine:
 
 def generate_analytics_chart(tracking_id, success, failed, blocked):
     if success == 0 and failed == 0 and blocked == 0:
-        success = 1  # Fallback
+        success = 1
         
     labels = ['Delivered', 'Failed/SMTP', 'Suppressed']
     sizes = [success, failed, blocked]
@@ -224,8 +209,6 @@ def api_verify_domain():
 @script37_bp.route('/api/dispatch', methods=['POST'])
 def api_dispatch():
     data = request.json or {}
-    
-    # Extract multiple SMTP profiles for rotation
     smtp_servers = data.get('smtp_servers', [])
     imap_host = data.get('imap_host')
     imap_port = int(data.get('imap_port', 993))
@@ -247,11 +230,8 @@ def api_dispatch():
     } if imap_host and email_user else None
 
     engine = EnterpriseEmailEngine(smtp_servers, imap_config)
-    
-    # Run IMAP Sync
     blocklist_count = engine.sync_bounces()
     
-    # Run Spam Evaluator
     spam_report = engine.check_spam_score(subject, template_str)
     if spam_report['score'] >= 9:
         return jsonify({
@@ -262,7 +242,6 @@ def api_dispatch():
     logs = []
     tracking_id = f"camp_{int(time.time())}"
     
-    # Threaded delivery execution
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = [
             executor.submit(engine.process_single_email, lead, subject, template_str, idx, logs, tracking_id) 
@@ -287,7 +266,7 @@ def api_dispatch():
         'chart_url': chart_url
     })
 
-# UPPER PREMIUM MODERN BLACK-HAT TERMINAL UI
+# RAW LITERAL TEMPLATE STRING - NO JINJA CONFLICTS FOR JAVASCRIPT
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en">
@@ -362,11 +341,10 @@ HTML_LAYOUT = """
                     </h3>
                     
                     <div id="smtpContainer" class="space-y-3">
-                        <!-- Default SMTP inputs inside an array wrapper -->
                         <div class="smtp-row grid grid-cols-12 gap-2 bg-slate-900/40 p-3 rounded-lg border border-slate-800">
-                            <input type="text" placeholder="smtp.host.com" class="col-span-5 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono" value="">
+                            <input type="text" placeholder="smtp.host.com" class="col-span-5 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono">
                             <input type="number" placeholder="587" class="col-span-2 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono" value="587">
-                            <input type="email" placeholder="user@domain.com" class="col-span-3 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono" value="">
+                            <input type="email" placeholder="user@domain.com" class="col-span-3 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono">
                             <input type="password" placeholder="pass" class="col-span-2 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono">
                         </div>
                     </div>
@@ -453,7 +431,7 @@ HTML_LAYOUT = """
 <html>
 <body style="background-color: #0f172a; color: #f8fafc; font-family: sans-serif; padding: 20px;">
   <div style="max-width: 600px; margin: 0 auto; background-color: #1e293b; padding: 30px; border-radius: 10px; border: 1px solid #334155;">
-    <h2 style="color: #10b981;">Hi \x7b\x7b name \x7d\x7d,</h2>
+    <h2 style="color: #10b981;">Hi {{ name }},</h2>
     <p style="font-size: 14px; line-height: 1.6; color: #cbd5e1;">We have generated a custom security diagnosis report for your associated domain.</p>
     <a href="#" style="background-color: #10b981; color: #0f172a; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 15px;">Unlock Access Portfolio</a>
   </div>
@@ -477,10 +455,11 @@ HTML_LAYOUT = """
                 const data = await res.json();
                 if(data.success) {
                     const health = data.health;
+                    const statusText = health.valid ? 'Active ✓' : 'Failed ✗';
                     reportDiv.innerHTML = `
-                        <div class="text-emerald-400">MX Verified: \x7b\x7b health.valid ? 'Active ✓' : 'Failed ✗' \x7d\x7d</div>
-                        <div class="truncate">SPF: \x7b\x7b health.spf \x7d\x7d</div>
-                        <div class="truncate">DMARC: \x7b\x7b health.dmarc \x7d\x7d</div>
+                        <div class="text-emerald-400">MX Verified: ` + statusText + `</div>
+                        <div class="truncate">SPF: ` + health.spf + `</div>
+                        <div class="truncate">DMARC: ` + health.dmarc + `</div>
                     `;
                 } else {
                     reportDiv.innerHTML = "Error analyzing domain";
@@ -509,11 +488,18 @@ HTML_LAYOUT = """
                 return alert("Please configure at least one valid SMTP profile.");
             }
 
+            let leadsData = [];
+            try {
+                leadsData = JSON.parse(document.getElementById('emailLeads').value);
+            } catch(e) {
+                return alert("Invalid JSON in Target Matrix payload.");
+            }
+
             const payload = {
                 smtp_servers: smtp_servers,
                 subject: document.getElementById('emailSubject').value.trim(),
                 template: document.getElementById('emailTemplate').value,
-                leads: JSON.parse(document.getElementById('emailLeads').value)
+                leads: leadsData
             };
 
             document.getElementById('loader').classList.remove('hidden');
@@ -529,7 +515,7 @@ HTML_LAYOUT = """
                 document.getElementById('loader').classList.add('hidden');
                 
                 if(data.success) {
-                    document.getElementById('spamScore').innerText = `${data.spam_score} (${data.spam_status})`;
+                    document.getElementById('spamScore').innerText = data.spam_score + " (" + data.spam_status + ")";
                     document.getElementById('syncBlocked').innerText = data.sync_blocked_total;
                     document.getElementById('deliveryChart').src = './' + data.chart_url + '?cache=' + new Date().getTime();
                     
@@ -538,7 +524,8 @@ HTML_LAYOUT = """
                     data.logs.forEach(log => {
                         const isSuccess = log.status === 'Success';
                         const colorClass = isSuccess ? 'text-emerald-400' : 'text-rose-400';
-                        logTerminal.innerHTML += `<div class="\x7b\x7bcolorClass\x7d\x7d">[>>>] Target: \x7b\x7b log.email \x7d\x7d | Status: \x7b\x7b log.status \x7d\x7d | Gateway: \x7b\x7b log.gateway || 'None' \x7d\x7d</div>`;
+                        const gatewayText = log.gateway ? log.gateway : 'None';
+                        logTerminal.innerHTML += `<div class="` + colorClass + `">[>>>] Target: ` + log.email + ` | Status: ` + log.status + ` | Gateway: ` + gatewayText + `</div>`;
                     });
                     
                     document.getElementById('outputContainer').classList.remove('hidden');
@@ -554,4 +541,3 @@ HTML_LAYOUT = """
 </body>
 </html>
 """
-
