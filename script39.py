@@ -31,7 +31,7 @@ class LiveScraperRuntimeSimulator:
         
     def append_log(self, message):
         timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]")
-        GLOBAL_LOG_BUFFERS[self.op_id].append(f"{timestamp} » {message}")
+        GLOBAL_LOG_BUFFERS[self.op_id].append(f"{timestamp} Â» {message}")
 
     def execution_pipeline(self):
         self.append_log("Initializing request routing handshake protocols...")
@@ -111,39 +111,48 @@ def index():
 
 @script39_bp.route('/api/start', methods=['POST'])
 def api_start_scraper():
-    payload = request.get_json() or {}
-    query = payload.get('query', '').strip()
-    if not query:
-        return jsonify({"success": False, "error": "Query string value cannot be blank."})
+    try:
+        payload = request.get_json() or {}
+        query = payload.get('query', '').strip()
+        if not query:
+            return jsonify({"success": False, "error": "Query string value cannot be blank."}), 400
+            
+        operation_id = f"OP_{int(time.time() * 1000)}"
+        ACTIVE_OPERATIONS[operation_id] = True
         
-    operation_id = f"OP_{int(time.time())}"
-    ACTIVE_OPERATIONS[operation_id] = True
-    
-    worker = LiveScraperRuntimeSimulator(operation_id, query)
-    threading.Thread(target=worker.execution_pipeline, daemon=True).start()
-    
-    return jsonify({"success": True, "op_id": operation_id})
+        worker = LiveScraperRuntimeSimulator(operation_id, query)
+        threading.Thread(target=worker.execution_pipeline, daemon=True).start()
+        
+        return jsonify({"success": True, "op_id": operation_id}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @script39_bp.route('/api/poll/<op_id>', methods=['GET'])
 def api_poll_scraper(op_id):
-    if op_id not in METRICS_LEDGER:
-        return jsonify({"success": False, "error": "Target operation index log not registered."})
-        
-    return jsonify({
-        "success": True,
-        "metrics": METRICS_LEDGER[op_id],
-        "logs": GLOBAL_LOG_BUFFERS[op_id],
-        "data": SCRAPED_DATA_CACHE[op_id],
-        "is_running": ACTIVE_OPERATIONS.get(op_id, False)
-    })
+    try:
+        if op_id not in METRICS_LEDGER:
+            return jsonify({"success": False, "error": "Target operation index log not registered."}), 404
+            
+        return jsonify({
+            "success": True,
+            "metrics": METRICS_LEDGER[op_id],
+            "logs": GLOBAL_LOG_BUFFERS.get(op_id, []),
+            "data": SCRAPED_DATA_CACHE.get(op_id, []),
+            "is_running": ACTIVE_OPERATIONS.get(op_id, False)
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @script39_bp.route('/api/stop/<op_id>', methods=['POST'])
 def api_stop_scraper(op_id):
-    if op_id in ACTIVE_OPERATIONS:
-        ACTIVE_OPERATIONS[op_id] = False
-        METRICS_LEDGER[op_id].update({"status": "Terminated Forcefully", "color": "#EF4444"})
-        return jsonify({"success": True, "message": "Core link disconnected."})
-    return jsonify({"success": False, "error": "Invalid engine sequence identification ID."})
+    try:
+        if op_id in ACTIVE_OPERATIONS:
+            ACTIVE_OPERATIONS[op_id] = False
+            METRICS_LEDGER[op_id].update({"status": "Terminated Forcefully", "color": "#EF4444"})
+            return jsonify({"success": True, "message": "Core link disconnected."}), 200
+        return jsonify({"success": False, "error": "Invalid engine sequence identification ID."}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 HTML_WORKSPACE = """
 <!DOCTYPE html>
@@ -301,6 +310,7 @@ HTML_WORKSPACE = """
         let globalOperationId = null;
         let internalPollingClock = null;
         let localMasterCacheData = [];
+        let isOperationRunning = false;
 
         function toggleVisualThemeStyle() {
             const root = document.getElementById('themeRoot');
@@ -311,12 +321,14 @@ HTML_WORKSPACE = """
         async function toggleExtractionMatrix() {
             const launchBtn = document.getElementById('btnActionLaunch');
             
-            if (globalOperationId) {
+            if (isOperationRunning && globalOperationId) {
                 clearInterval(internalPollingClock);
-                await fetch(`./api/stop/${globalOperationId}`, { method: 'POST' });
+                await fetch(`/api/stop/${globalOperationId}`, { method: 'POST' });
                 globalOperationId = null;
+                isOperationRunning = false;
                 launchBtn.innerText = "LAUNCH EXTRACTION";
-                launchBtn.className = launchBtn.className.replace("bg-rose-600", "bg-blue-600").replace("hover:bg-rose-500", "hover:bg-blue-500");
+                launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
+                launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
                 return;
             }
 
@@ -324,62 +336,87 @@ HTML_WORKSPACE = """
             if(!queryVal) return alert("Validation Error: Please configure a query target parameter first.");
 
             launchBtn.innerText = "HALT RUN ENGINE";
-            launchBtn.className = launchBtn.className.replace("bg-blue-600", "bg-rose-600").replace("hover:bg-blue-500", "hover:bg-rose-500");
+            launchBtn.classList.remove("bg-blue-600", "hover:bg-blue-500");
+            launchBtn.classList.add("bg-rose-600", "hover:bg-rose-500");
 
-            const req = await fetch('./api/start', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ query: queryVal })
-            });
-            const res = await req.json();
-            
-            if (res.success) {
-                globalOperationId = res.op_id;
-                document.getElementById('consoleLogsBox').innerHTML = `<div class="text-blue-400">[SYSTEM INDEX]: Stream pipeline successfully bound to operation ID: ${globalOperationId}</div>`;
-                internalPollingClock = setInterval(pollScraperBackendMetrics, 1000);
+            try {
+                const req = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ query: queryVal })
+                });
+                const res = await req.json();
+                
+                if (res.success) {
+                    globalOperationId = res.op_id;
+                    isOperationRunning = true;
+                    document.getElementById('consoleLogsBox').innerHTML = `<div class="text-blue-400">[SYSTEM INDEX]: Stream pipeline successfully bound to operation ID: ${globalOperationId}</div>`;
+                    internalPollingClock = setInterval(pollScraperBackendMetrics, 1000);
+                } else {
+                    alert('Error: ' + res.error);
+                    launchBtn.innerText = "LAUNCH EXTRACTION";
+                    launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
+                    launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
+                    isOperationRunning = false;
+                }
+            } catch(error) {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+                launchBtn.innerText = "LAUNCH EXTRACTION";
+                launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
+                launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
+                isOperationRunning = false;
             }
         }
 
         async function pollScraperBackendMetrics() {
             if(!globalOperationId) return;
 
-            const res = await (await fetch(`./api/poll/${globalOperationId}`)).json();
-            if(!res.success) return;
+            try {
+                const response = await fetch(`/api/poll/${globalOperationId}`);
+                const res = await response.json();
+                
+                if(!res.success) return;
 
-            const metrics = res.metrics;
-            document.getElementById('metricStatusText').innerText = metrics.status;
-            document.getElementById('metricCounterText').innerText = String(metrics.count).padStart(3, '0');
-            
-            let secs = metrics.runtime % 60;
-            let mins = Math.floor(metrics.runtime / 60) % 60;
-            let hrs = Math.floor(metrics.runtime / 3600);
-            document.getElementById('metricTimerText').innerText = `Operation Runtime: ${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+                const metrics = res.metrics;
+                document.getElementById('metricStatusText').innerText = metrics.status;
+                document.getElementById('metricCounterText').innerText = String(metrics.count).padStart(3, '0');
+                
+                let secs = metrics.runtime % 60;
+                let mins = Math.floor(metrics.runtime / 60) % 60;
+                let hrs = Math.floor(metrics.runtime / 3600);
+                document.getElementById('metricTimerText').innerText = `Operation Runtime: ${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
 
-            localMasterCacheData = res.data;
-            const tableBody = document.getElementById('dataTableBodyRows');
-            if (localMasterCacheData.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="4" class="px-6 py-10 text-center font-mono muted-text">Scraping data layers asynchronously... Please wait.</td></tr>`;
-            } else {
-                tableBody.innerHTML = localMasterCacheData.map(row => `
-                    <tr class="hover:bg-black/20 transition">
-                        <td class="px-6 py-3.5 font-bold">${row["Name"]}</td>
-                        <td class="px-6 py-3.5 text-blue-400 font-bold">${row["Phone"]}</td>
-                        <td class="px-6 py-3.5 opacity-80">${row["Address"]}</td>
-                        <td class="px-6 py-3.5 text-emerald-400 font-black"><i class="fa-solid fa-star text-[10px] mr-1"></i>${row["Rating"]}</td>
-                    </tr>
-                `).join('');
-            }
+                localMasterCacheData = res.data;
+                const tableBody = document.getElementById('dataTableBodyRows');
+                if (localMasterCacheData.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="4" class="px-6 py-10 text-center font-mono muted-text">Scraping data layers asynchronously... Please wait.</td></tr>`;
+                } else {
+                    tableBody.innerHTML = localMasterCacheData.map(row => `
+                        <tr class="hover:bg-black/20 transition">
+                            <td class="px-6 py-3.5 font-bold">${row["Name"]}</td>
+                            <td class="px-6 py-3.5 text-blue-400 font-bold">${row["Phone"]}</td>
+                            <td class="px-6 py-3.5 opacity-80">${row["Address"]}</td>
+                            <td class="px-6 py-3.5 text-emerald-400 font-black"><i class="fa-solid fa-star text-[10px] mr-1"></i>${row["Rating"]}</td>
+                        </tr>
+                    `).join('');
+                }
 
-            const logsContainer = document.getElementById('consoleLogsBox');
-            logsContainer.innerHTML = res.logs.map(log => `<div>${log}</div>`).join('');
-            logsContainer.scrollTop = logsContainer.scrollHeight;
+                const logsContainer = document.getElementById('consoleLogsBox');
+                logsContainer.innerHTML = (res.logs || []).map(log => `<div>${log}</div>`).join('');
+                logsContainer.scrollTop = logsContainer.scrollHeight;
 
-            if (!res.is_running) {
-                clearInterval(internalPollingClock);
-                globalOperationId = null;
-                const launchBtn = document.getElementById('btnActionLaunch');
-                launchBtn.innerText = "LAUNCH EXTRACTION";
-                launchBtn.className = launchBtn.className.replace("bg-rose-600", "bg-blue-600").replace("hover:bg-rose-500", "hover:bg-blue-500");
+                if (!res.is_running) {
+                    clearInterval(internalPollingClock);
+                    globalOperationId = null;
+                    isOperationRunning = false;
+                    const launchBtn = document.getElementById('btnActionLaunch');
+                    launchBtn.innerText = "LAUNCH EXTRACTION";
+                    launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
+                    launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
+                }
+            } catch(error) {
+                console.error('Poll error:', error);
             }
         }
 
@@ -407,10 +444,9 @@ HTML_WORKSPACE = """
             elementLink.setAttribute("download", `ScrapedData_Archive_${Math.floor(Date.now()/1000)}.${fileExtension}`);
             document.body.appendChild(elementLink);
             elementLink.click();
-            elementLink.remove();
+            document.body.removeChild(elementLink);
         }
     </script>
 </body>
 </html>
 """
-
