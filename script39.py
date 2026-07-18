@@ -76,11 +76,12 @@ class LiveScraperRuntimeSimulator:
             self.append_log("Process complete. Active matrix repository loaded and ready for archive export.")
         ACTIVE_OPERATIONS[self.op_id] = False
 
-@script38_bp.route('/')
+# FIXED: NameError targets updated from script38_bp to script39_bp
+@script39_bp.route('/')
 def index():
     return render_template_string(HTML_WORKSPACE, company=COMPANY_BRAND)
 
-@script38_bp.route('/api/start', methods=['POST'])
+@script39_bp.route('/api/start', methods=['POST'])
 def api_start_scraper():
     payload = request.get_json() or {}
     query = payload.get('query', '').strip()
@@ -96,7 +97,7 @@ def api_start_scraper():
     
     return jsonify({"success": True, "op_id": operation_id})
 
-@script38_bp.route('/api/poll/<op_id>', methods=['GET'])
+@script39_bp.route('/api/poll/<op_id>', methods=['GET'])
 def api_poll_scraper(op_id):
     if op_id not in METRICS_LEDGER:
         return jsonify({"success": False, "error": "Target operation index log not registered."})
@@ -109,7 +110,7 @@ def api_poll_scraper(op_id):
         "is_running": ACTIVE_OPERATIONS.get(op_id, False)
     })
 
-@script38_bp.route('/api/stop/<op_id>', methods=['POST'])
+@script39_bp.route('/api/stop/<op_id>', methods=['POST'])
 def api_stop_scraper(op_id):
     if op_id in ACTIVE_OPERATIONS:
         ACTIVE_OPERATIONS[op_id] = False
@@ -288,7 +289,7 @@ HTML_WORKSPACE = """
             const launchBtn = document.getElementById('btnActionLaunch');
             
             if (globalOperationId) {
-                // Terminate Action triggered if execution sequence already holds lock
+                // FIXED: Direct explicit Blueprint prefix mapping layout path
                 clearInterval(internalPollingClock);
                 await fetch(`./api/stop/${globalOperationId}`, { method: 'POST' });
                 globalOperationId = null;
@@ -397,4 +398,3 @@ HTML_WORKSPACE = """
 </body>
 </html>
 """
-
