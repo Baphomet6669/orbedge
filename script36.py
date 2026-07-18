@@ -1,14 +1,11 @@
 import os
 import urllib.parse
-import random
 from flask import Blueprint, render_template_string, request, jsonify
 import requests
-from bs4 import BeautifulSoup
 
-# Blueprint definition setup
 script36_bp = Blueprint('script36', __name__)
 
-# Exhaustive Premium A-to-Z High-DA Platform Blueprint Catalog
+# Premium A-to-Z High-DA Platform Blueprint Catalog
 MASTER_BACKLINK_CATALOG = [
     {
         "id": "github",
@@ -75,14 +72,6 @@ MASTER_BACKLINK_CATALOG = [
         "steps": "1. Deploy a dynamic developer blog profile dashboard on Hashnode.\\n2. Write case studies or product changelogs, adding outbound hyperlinks directly to your operational server landing page nodes."
     },
     {
-        "id": "about_me",
-        "site": "about.me",
-        "da": 92,
-        "type": "Identity Profile Card",
-        "difficulty": "Easy",
-        "steps": "1. Launch a personal placeholder portfolio stack on About.me.\\n2. Change the primary CTA button target configuration to forward traffic loops to your central dashboard URL site."
-    },
-    {
         "id": "tumblr",
         "site": "tumblr.com",
         "da": 95,
@@ -92,55 +81,41 @@ MASTER_BACKLINK_CATALOG = [
     }
 ]
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-]
-
-def crawl_duckduckgo_layer(target_domain):
-    """Scrapes DuckDuckGo HTML structural architecture for reliable footprint indexing."""
-    query = f'"{target_domain}" -site:{target_domain}'
-    search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-    headers = {"User-Agent": random.choice(USER_AGENTS)}
+def fetch_accurate_backlinks(target_domain):
+    """
+    Fetches actual real-time Google search indices using Serper.dev API
+    To use this, get a free key from https://serper.dev
+    """
+    # ⚠️ APNI API KEY YAHAN DAALO
+    SERPER_API_KEY = "YOUR_SERPER_API_KEY_HERE"
     
-    results = []
-    try:
-        res = requests.get(search_url, headers=headers, timeout=12)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            for a in soup.find_all('a', class_='result__snippet'):
-                url_path = a.get('href', '')
-                if "uddg=" in url_path:
-                    parsed = urllib.parse.parse_qs(urllib.parse.urlparse(url_path).query)
-                    if "uddg" in parsed:
-                        url_path = parsed["uddg"][0]
-                
-                title = a.text.strip()[:60] if a.text else "Indexed Referral Page"
-                if url_path and target_domain not in url_path and "duckduckgo.com" not in url_path:
-                    results.append({"title": title, "url": url_path})
-        return results
-    except Exception:
+    if SERPER_API_KEY == "YOUR_SERPER_API_KEY_HERE" or not SERPER_API_KEY:
+        # Fallback tracking indicator if key is missing
         return []
 
-def crawl_bing_layer(target_domain):
-    """Parallel secondary crawler scraping Bing markup architectures."""
+    url = "https://google.serper.dev/search"
     query = f'"{target_domain}" -site:{target_domain}'
-    search_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
-    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    
+    payload = {
+        "q": query,
+        "num": 40
+    }
+    headers = {
+        'X-API-KEY': SERPER_API_KEY,
+        'Content-Type': 'application/json'
+    }
     
     results = []
     try:
-        res = requests.get(search_url, headers=headers, timeout=12)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            for h2 in soup.find_all('h2'):
-                anchor = h2.find('a')
-                if anchor:
-                    url_path = anchor.get('href', '')
-                    title = anchor.text.strip()
-                    if url_path and target_domain not in url_path and "bing.com" not in url_path and "microsoft.com" not in url_path:
-                        results.append({"title": title, "url": url_path})
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code == 200:
+            search_data = response.json()
+            # Parse organic results safely
+            for item in search_data.get('organic', []):
+                link = item.get('link', '')
+                title = item.get('title', 'Indexed Context Link')
+                if link and target_domain not in link:
+                    results.append({"title": title, "url": link})
         return results
     except Exception:
         return []
@@ -151,7 +126,7 @@ HTML_TEMPLATE = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Backlink Engine Hub</title>
+    <title>Accurate Backlink Matrix Hub</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -162,7 +137,6 @@ HTML_TEMPLATE = '''
 </head>
 <body class="min-h-screen antialiased font-sans">
 
-    <!-- Navbar Layout -->
     <header class="dashboard-card border-b px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-2xl">
         <div class="flex items-center gap-3">
             <div class="p-2 bg-sky-600 rounded-xl text-white shadow-lg shadow-sky-600/30">
@@ -173,12 +147,11 @@ HTML_TEMPLATE = '''
                 <span class="text-[9px] block text-sky-400 font-mono font-bold tracking-wider">A-TO-Z SEO MATRIX PIPELINE</span>
             </div>
         </div>
-        <div class="text-xs font-mono text-emerald-400"><i class="fa-solid fa-shield-halved animate-pulse"></i> ACTIVE REAL-TIME CRITICAL ANALYSIS DATA</div>
+        <div class="text-xs font-mono text-emerald-400"><i class="fa-solid fa-circle-check animate-pulse"></i> HIGHLY ACCURATE SEARCH API NODE</div>
     </header>
 
     <main class="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
         
-        <!-- Action Dashboard Terminal Input -->
         <div class="dashboard-card p-6 rounded-2xl shadow-xl space-y-4">
             <h3 class="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
                 <i class="fa-solid fa-terminal text-sky-500 mr-2"></i> Targeted Link Auditing Console
@@ -190,9 +163,9 @@ HTML_TEMPLATE = '''
                     ANALYZE ALL BACKLINKS
                 </button>
             </div>
+            <p id="apiKeyWarning" class="text-[11px] font-mono text-yellow-500 hidden"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Note: Please make sure you have added your Serper API Key in the python script for 100% accurate live scraping.</p>
         </div>
 
-        <!-- Metric Counter Displays Panel -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             <div class="dashboard-card p-5 rounded-2xl flex items-center justify-between">
                 <div>
@@ -217,13 +190,11 @@ HTML_TEMPLATE = '''
             </div>
         </div>
 
-        <!-- Waiting Spinner Loader Frame -->
         <div id="loadingWorkspace" class="hidden py-16 text-center text-xs font-mono text-gray-400">
             <i class="fa-solid fa-circle-notch animate-spin text-3xl text-sky-500 mb-4 block"></i>
-            Executing multi-node parsers mapping indexes... Processing full dataset records... Please hold on...
+            Executing index validation via API node... Fetching accurate live datasets... Please wait...
         </div>
 
-        <!-- Core Split Data Workspace Framework grids -->
         <div id="dataDashboardWrapper" class="grid grid-cols-1 lg:grid-cols-12 gap-6 hidden">
             
             <!-- LEFT SECTION: EXISTING TRACKING -->
@@ -231,7 +202,7 @@ HTML_TEMPLATE = '''
                 <div>
                     <div class="px-5 py-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/40">
                         <h4 class="text-xs font-mono font-bold tracking-wider text-emerald-400"><i class="fa-solid fa-circle-nodes mr-1.5"></i> Live Referral Link Coordinates</h4>
-                        <span class="text-[9px] font-mono bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-bold uppercase">CRAWL DATA</span>
+                        <span class="text-[9px] font-mono bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-bold uppercase">LIVE COUNT</span>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left font-mono text-xs">
@@ -245,7 +216,7 @@ HTML_TEMPLATE = '''
                         </table>
                     </div>
                 </div>
-                <div class="p-3 bg-black/20 text-[9px] text-gray-500 font-mono">Live dynamic validation layers check out mapping indexes complete.</div>
+                <div class="p-3 bg-black/20 text-[9px] text-gray-500 font-mono">Live API indices validation layer analysis complete.</div>
             </div>
 
             <!-- RIGHT SECTION: EXHAUSTIVE TARGET CHECKS (A to Z BUILDER) -->
@@ -253,7 +224,7 @@ HTML_TEMPLATE = '''
                 <div>
                     <div class="px-5 py-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/40">
                         <h4 class="text-xs font-mono font-bold tracking-wider text-yellow-400"><i class="fa-solid fa-map-location-dot mr-1.5"></i> A-to-Z High-DA Link Creation Playbook</h4>
-                        <span class="text-[9px] font-mono bg-yellow-500/10 text-yellow-400 px-2 py-0.5 rounded font-bold uppercase">STRATEGY ENGINE</span>
+                        <span class="text-[9px] font-mono bg-yellow-500/10 text-yellow-400 px-2 py-0.5 rounded font-bold uppercase">STRATEGY</span>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left font-mono text-xs">
@@ -269,12 +240,12 @@ HTML_TEMPLATE = '''
                         </table>
                     </div>
                 </div>
-                <div class="p-3 bg-black/20 text-[9px] text-gray-400 font-mono text-right"><i class="fa-solid fa-circle-info text-sky-400 mr-1 animate-pulse"></i> Click 'Reveal Build Steps' to inspect structural setup guides.</div>
+                <div class="p-3 bg-black/20 text-[9px] text-gray-400 font-mono text-right"><i class="fa-solid fa-circle-info text-sky-400 mr-1"></i> Click 'Reveal Build Steps' to inspect structural setup guides.</div>
             </div>
         </div>
     </main>
 
-    <!-- STEP BLUEPRINT MODAL POPUP DIALOG WINDOW -->
+    <!-- STEP BLUEPRINT MODAL -->
     <div id="modalInstructionsPopup" class="fixed inset-0 bg-black/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-gray-900 border border-gray-800 w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl p-6 space-y-4">
             <div class="flex justify-between items-start border-b border-gray-800 pb-3">
@@ -302,7 +273,7 @@ HTML_TEMPLATE = '''
 
         async function triggerVerificationPipeline() {
             const valDomain = document.getElementById('siteUrlInput').value.trim();
-            if(!valDomain) return alert("Bhai layout parameter empty hai, domain configuration check karo pehle!");
+            if(!valDomain) return alert("Bhai, domain enter karo pehle!");
 
             document.getElementById('loadingWorkspace').classList.remove('hidden');
             document.getElementById('dataDashboardWrapper').classList.add('hidden');
@@ -317,27 +288,31 @@ HTML_TEMPLATE = '''
                 document.getElementById('loadingWorkspace').classList.add('hidden');
                 document.getElementById('dataDashboardWrapper').classList.remove('hidden');
 
+                if (data.is_mocked) {
+                    document.getElementById('apiKeyWarning').classList.remove('hidden');
+                } else {
+                    document.getElementById('apiKeyWarning').classList.add('hidden');
+                }
+
                 const existingLinks = data.current_backlinks_found || [];
                 globalSuggestionsData = data.where_to_create_suggestions || [];
 
-                // Metrics counter assignment updates logic
-                document.getElementById('cntTotalLinks').innerText = existingLinks.length;
+                document.getElementById('cntTotalLinks').innerText = data.total_backlinks_count;
                 document.getElementById('cntMissing').innerText = globalSuggestionsData.length;
                 
                 const statLabel = document.getElementById('cntStatus');
-                if(existingLinks.length > 3) {
-                    statLabel.innerText = "OPTIMIZED INDEXING";
+                if(existingLinks.length > 0 && !data.is_mocked) {
+                    statLabel.innerText = "ACTIVE BACKLINKS";
                     statLabel.className = "text-lg font-black font-mono text-emerald-400";
                 } else {
-                    statLabel.innerText = "ACTION NEEDED";
-                    statLabel.className = "text-lg font-black font-mono text-rose-500";
+                    statLabel.innerText = "SETUP REQUIRED";
+                    statLabel.className = "text-lg font-black font-mono text-amber-500";
                 }
 
-                // Append and loop existing row grids
                 const blockEx = document.getElementById('existingRowsContainer');
                 blockEx.innerHTML = '';
                 if(existingLinks.length === 0) {
-                    blockEx.innerHTML = `<tr><td colspan="2" class="p-5 text-center text-gray-500 italic">Koi index data match record nahi mila loop parameters pe.</td></tr>`;
+                    blockEx.innerHTML = `<tr><td colspan="2" class="p-5 text-center text-gray-500 italic">No live record matches found. Please add API Key for real-time fetch.</td></tr>`;
                 } else {
                     existingLinks.forEach(row => {
                         blockEx.innerHTML += `
@@ -349,11 +324,9 @@ HTML_TEMPLATE = '''
                     });
                 }
 
-                // Append and loop playbook builder catalog items
                 const blockOpp = document.getElementById('catalogOpportunitiesContainer');
                 blockOpp.innerHTML = '';
                 globalSuggestionsData.forEach(row => {
-                    const diffBadge = row.difficulty === 'Easy' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-yellow-500/10 text-yellow-500';
                     blockOpp.innerHTML += `
                         <tr class="hover:bg-black/20 transition">
                             <td class="px-4 py-3.5 font-extrabold text-gray-200">${row.site}</td>
@@ -370,7 +343,7 @@ HTML_TEMPLATE = '''
 
             } catch(err) {
                 document.getElementById('loadingWorkspace').classList.add('hidden');
-                alert("Runtime Data Scraper Engine error message: " + err.message);
+                alert("Error handling pipeline: " + err.message);
             }
         }
 
@@ -378,8 +351,8 @@ HTML_TEMPLATE = '''
             const datasetObj = globalSuggestionsData.find(x => x.id === targetId);
             if(!datasetObj) return;
 
-            document.getElementById('lblTargetPlatform').innerText = `${datasetObj.site.toUpperCase()} (Domain Authority: ${datasetObj.da}/100)`;
-            document.getElementById('lblLinkType').innerText = `${datasetObj.type} Structure Plan`;
+            document.getElementById('lblTargetPlatform').innerText = `${datasetObj.site.toUpperCase()} (DA: ${datasetObj.da}/100)`;
+            document.getElementById('lblLinkType').innerText = `${datasetObj.type} Setup`;
             document.getElementById('lblStepGuidelines').innerText = datasetObj.steps;
 
             document.getElementById('modalInstructionsPopup').classList.remove('hidden');
@@ -401,45 +374,38 @@ def index():
 def check_backlinks():
     raw_domain = request.form.get('domain', '').strip().lower()
     if not raw_domain:
-        return jsonify({"current_backlinks_found": [], "where_to_create_suggestions": []})
+        return jsonify({"current_backlinks_found": [], "where_to_create_suggestions": [], "total_backlinks_count": 0})
         
-    # Standard cleanup configuration rules to separate raw domain paths
     clean_domain = raw_domain.replace("https://", "").replace("http://", "").replace("www.", "").split('/')[0]
     
-    # Process concurrent queries natively across dynamic scraper blocks
-    ddg_dataset = crawl_duckduckgo_layer(clean_domain)
-    bing_dataset = crawl_bing_layer(clean_domain)
+    # Accurate Fetch Layer
+    live_backlinks = fetch_accurate_backlinks(clean_domain)
+    is_mocked = False
     
-    # Merge, validate unique data and trace absolute references
-    merged_results = ddg_dataset + bing_dataset
-    unique_links_cache = {}
-    
-    for entry in merged_results:
-        sanitized_path = entry['url'].split('?')[0].strip()
-        if sanitized_path not in unique_links_cache:
-            unique_links_cache[sanitized_path] = entry
-            
-    final_existing_backlinks = list(unique_links_cache.values())
-    
-    # Fallback simulation tracking array layer if free server clusters return blank sets
-    if not final_existing_backlinks:
-        final_existing_backlinks = [
-            {"title": f"Global infrastructure index traces matching {clean_domain}", "url": f"https://html.duckduckgo.com/html/?q={clean_domain}"},
-            {"title": f"Public directory index snapshot log", "url": f"https://www.bing.com/search?q={clean_domain}"}
+    # If API key is not configured yet, use structured simulation to prevent system crash
+    if not live_backlinks:
+        is_mocked = True
+        live_backlinks = [
+            {"title": f"Sample Profile Context (Configure API Key for live sync)", "url": f"https://github.com/sample-repo-link"},
+            {"title": f"Sample Tech Blog Pointer Reference", "url": f"https://dev.to/sample-blog-post"}
         ]
         
-    # Complete catalog processing to compute gaps mapping structures
+    total_count = len(live_backlinks) if not is_mocked else 0
+        
+    # Process Remaining Opportunities
     final_suggestions = []
-    found_urls_flattened = [link['url'].lower() for link in final_existing_backlinks]
+    found_urls_flattened = [link['url'].lower() for link in live_backlinks]
     
     for potential_target in MASTER_BACKLINK_CATALOG:
         is_already_created = any(potential_target['id'] in flat_url for flat_url in found_urls_flattened)
-        if not is_already_created:
+        if not is_already_created and not (is_mocked and potential_target['id'] in ['github', 'dev_to']):
             final_suggestions.append(potential_target)
             
     return jsonify({
         "target_domain": clean_domain,
-        "current_backlinks_found": final_existing_backlinks,
-        "where_to_create_suggestions": final_suggestions
+        "current_backlinks_found": live_backlinks,
+        "where_to_create_suggestions": final_suggestions,
+        "total_backlinks_count": total_count,
+        "is_mocked": is_mocked
     })
 
