@@ -2,10 +2,8 @@ import os
 import urllib.parse
 from flask import Blueprint, render_template_string, request, jsonify
 from googlesearch import search
-from bs4 import BeautifulSoup
-import requests
 
-# Blueprint create kiya jise app.py register karega
+# Blueprint engine setup
 script36_bp = Blueprint('script36', __name__)
 
 # High DA Websites Suggestion List
@@ -22,28 +20,24 @@ POTENTIAL_BACKLINK_SOURCES = [
 
 def find_existing_backlinks(target_domain):
     """
-    Uses googlesearch-python module to securely fetch live index links
-    without requiring API keys or triggering instant layout blocks.
+    Uses googlesearch-python module to securely fetch live index links.
     """
     query = f'"{target_domain}" -site:{target_domain}'
     existing_links = []
     
     try:
-        # Utilizing python module rotation layer to hit index elements safely
-        # advanced parsing parameter to pull up to 25 organic items
-        results = search(query, num_results=25, sleep_interval=2)
+        # Pull up to 15 items safely to avoid immediate strict thresholds
+        results = search(query, num_results=15, sleep_interval=2)
         
         for url in results:
             if target_domain not in url and "google.com" not in url:
-                # Dynamically extract a friendly title from the URL structure
                 parsed_url = urllib.parse.urlparse(url)
                 title = parsed_url.netloc.replace("www.", "")
                 existing_links.append({"title": f"Indexed link on {title}", "url": url})
                 
         return existing_links
     except Exception as e:
-        # Catch rate limit or request drops gracefully without breaking framework
-        return {"error": "Google limits hit or network error. Please wait a bit or try another domain."}
+        return {"error": "Google limits hit or network timeout. Please try again after a brief pause."}
 
 # Modern UI Dashboard for Script36
 HTML_TEMPLATE = '''
@@ -215,12 +209,17 @@ HTML_TEMPLATE = '''
                 const formData = new FormData();
                 formData.append('domain', domain);
 
-                const response = await fetch('/check-backlinks', {
+                // FIXED: Using relative point query to prevent global blueprint route path breaking
+                const response = await fetch('check-backlinks', {
                     method: 'POST',
                     body: formData
                 });
-                const data = await response.json();
                 
+                if (!response.ok) {
+                    throw new Error(`Server status returned error: ${response.status}`);
+                }
+                
+                const data = await response.json();
                 document.getElementById('loader').style.display = 'none';
 
                 if(data.current_backlinks_found && data.current_backlinks_found.error) {
@@ -252,7 +251,7 @@ HTML_TEMPLATE = '''
                 document.getElementById('resultsGrid').style.display = 'grid';
             } catch(err) {
                 document.getElementById('loader').style.display = 'none';
-                alert("Kuch error aaya bhai: " + err);
+                alert("Kuch error aaya bhai: " + err.message);
             }
         }
     </script>
@@ -269,7 +268,7 @@ def index():
 def check_backlinks():
     target_domain = request.form.get('domain', '').strip().lower()
     if not target_domain:
-        return jsonify({"current_backlinks_found": {"error": "Invalid Domain parameter value input."}})
+        return jsonify({"current_backlinks_found": {"error": "Invalid Domain parameter value."}})
         
     target_domain = target_domain.replace("https://", "").replace("http://", "").replace("www.", "").split('/')[0]
     
@@ -283,7 +282,6 @@ def check_backlinks():
             if not is_created:
                 suggested_backlinks.append(source)
     else:
-        # Fallback to display the baseline potential backlinks if search faces rate-limits
         suggested_backlinks = POTENTIAL_BACKLINK_SOURCES
 
     return jsonify({
@@ -291,4 +289,3 @@ def check_backlinks():
         "current_backlinks_found": current_backlinks,
         "where_to_create_suggestions": suggested_backlinks
     })
-
