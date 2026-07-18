@@ -1,7 +1,9 @@
-from flask import Blueprint, render_template_string, request, jsonify
-import requests
-from bs4 import BeautifulSoup
+import os
 import urllib.parse
+from flask import Blueprint, render_template_string, request, jsonify
+from googlesearch import search
+from bs4 import BeautifulSoup
+import requests
 
 # Blueprint create kiya jise app.py register karega
 script36_bp = Blueprint('script36', __name__)
@@ -19,33 +21,29 @@ POTENTIAL_BACKLINK_SOURCES = [
 ]
 
 def find_existing_backlinks(target_domain):
+    """
+    Uses googlesearch-python module to securely fetch live index links
+    without requiring API keys or triggering instant layout blocks.
+    """
     query = f'"{target_domain}" -site:{target_domain}'
-    search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&num=30"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    existing_links = []
     
     try:
-        response = requests.get(search_url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            return {"error": "Google block kar raha hai, thodi der baad try karein ya proxy use karein."}
-            
-        soup = BeautifulSoup(response.text, 'html.parser')
-        existing_links = []
+        # Utilizing python module rotation layer to hit index elements safely
+        # advanced parsing parameter to pull up to 25 organic items
+        results = search(query, num_results=25, sleep_interval=2)
         
-        for g in soup.find_all('div', class_='g'):
-            anchors = g.find_all('a')
-            if anchors:
-                link = anchors[0]['href']
-                title = g.find('h3').text if g.find('h3') else link
+        for url in results:
+            if target_domain not in url and "google.com" not in url:
+                # Dynamically extract a friendly title from the URL structure
+                parsed_url = urllib.parse.urlparse(url)
+                title = parsed_url.netloc.replace("www.", "")
+                existing_links.append({"title": f"Indexed link on {title}", "url": url})
                 
-                if target_domain not in link and "google.com" not in link:
-                    existing_links.append({"title": title, "url": link})
-                    
         return existing_links
     except Exception as e:
-        return {"error": str(e)}
+        # Catch rate limit or request drops gracefully without breaking framework
+        return {"error": "Google limits hit or network error. Please wait a bit or try another domain."}
 
 # Modern UI Dashboard for Script36
 HTML_TEMPLATE = '''
@@ -169,7 +167,7 @@ HTML_TEMPLATE = '''
             <button onclick="startAnalysis()">Analyze Backlinks</button>
         </div>
 
-        <div class="loading" id="loader">🌐 Analyzing Google index & footprints... Please wait...</div>
+        <div class="loading" id="loader">🌐 Analyzing Google index footprints natively... Please wait...</div>
 
         <div class="grid" id="resultsGrid" style="display: none;">
             <div class="card">
@@ -225,14 +223,14 @@ HTML_TEMPLATE = '''
                 
                 document.getElementById('loader').style.display = 'none';
 
-                if(data.current_backlinks_found.error) {
+                if(data.current_backlinks_found && data.current_backlinks_found.error) {
                     alert(data.current_backlinks_found.error);
                     return;
                 }
 
                 const existingBody = document.getElementById('existingTableBody');
                 existingBody.innerHTML = '';
-                if(data.current_backlinks_found.length === 0) {
+                if(!data.current_backlinks_found || data.current_backlinks_found.length === 0) {
                     existingBody.innerHTML = '<tr><td colspan="2" style="color: var(--text-muted);">Koi external links nahi mile abhi.</td></tr>';
                 } else {
                     data.current_backlinks_found.forEach(item => {
@@ -269,21 +267,28 @@ def index():
 
 @script36_bp.route('/check-backlinks', methods=['POST'])
 def check_backlinks():
-    target_domain = request.form.get('domain').strip().lower()
+    target_domain = request.form.get('domain', '').strip().lower()
+    if not target_domain:
+        return jsonify({"current_backlinks_found": {"error": "Invalid Domain parameter value input."}})
+        
     target_domain = target_domain.replace("https://", "").replace("http://", "").replace("www.", "").split('/')[0]
     
     current_backlinks = find_existing_backlinks(target_domain)
-    
     suggested_backlinks = []
-    found_domains = [link['url'] for link in current_backlinks] if isinstance(current_backlinks, list) else []
     
-    for source in POTENTIAL_BACKLINK_SOURCES:
-        is_created = any(source['site'] in f_dom for f_dom in found_domains)
-        if not is_created:
-            suggested_backlinks.append(source)
+    if isinstance(current_backlinks, list):
+        found_domains = [link['url'] for link in current_backlinks]
+        for source in POTENTIAL_BACKLINK_SOURCES:
+            is_created = any(source['site'] in f_dom for f_dom in found_domains)
+            if not is_created:
+                suggested_backlinks.append(source)
+    else:
+        # Fallback to display the baseline potential backlinks if search faces rate-limits
+        suggested_backlinks = POTENTIAL_BACKLINK_SOURCES
 
     return jsonify({
         "target_domain": target_domain,
         "current_backlinks_found": current_backlinks,
         "where_to_create_suggestions": suggested_backlinks
     })
+
