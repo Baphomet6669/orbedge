@@ -397,8 +397,8 @@ HTML_WORKSPACE = """
                 fileExtension = "json";
             } else {
                 const headers = Object.keys(localMasterCacheData[0]).join(",");
-                const rows = localMasterCacheData.map(row => Object.values(row).map(v => `"${v}"`).join(",")).join("\\n");
-                dataStr = "data:text/csv;charset=utf-8,\\uFEFF" + encodeURIComponent(headers + "\\n" + rows);
+                const rows = localMasterCacheData.map(row => Object.values(row).map(v => `"${v}"`).join(",")).join("\n");
+                dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(headers + "\n" + rows);
                 fileExtension = "csv";
             }
 
