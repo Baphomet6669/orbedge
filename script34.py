@@ -17,10 +17,6 @@ app.secret_key = os.urandom(24)
 
 script34_bp = Blueprint('script34', __name__)
 
-# GitHub Integration Configs (Render Env Variables से उठाएगा)
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
-GITHUB_REPO = os.environ.get('GITHUB_REPO', '')  # Format: "username/repo"
-GITHUB_BRANCH = os.environ.get('GITHUB_BRANCH', 'main')
 DATA_FILE = 'crm_data.json'
 
 AUTH_USER = 'admin'
@@ -29,7 +25,7 @@ AUTH_PASS = '5hsuusu78@#/@&hsb'
 db_lock = Lock()
 
 # =========================================================================
-# GITHUB STORAGE ENGINE (NO-MORE LOSS OF DATA ON SERVER RESTART)
+# LOCAL STORAGE ENGINE
 # =========================================================================
 def get_default_structure():
     return {
@@ -47,73 +43,21 @@ def get_default_structure():
     }
 
 def db_read():
-    """GitHub API से फाइल का डेटा फेच करता है"""
-    if not GITHUB_TOKEN or not GITHUB_REPO:
-        # अगर टोकन सेट नहीं है, तो सेफ्टी के लिए लोकल फाइल पर फॉलबैक करेगा
+    """Local JSON Engine se data fetch karta hai"""
+    with db_lock:
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r') as f:
-                try: return json.load(f)
-                except: return get_default_structure()
+                try: 
+                    return json.load(f)
+                except: 
+                    return get_default_structure()
         return get_default_structure()
 
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}?ref={GITHUB_BRANCH}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-    
-    with db_lock:
-        try:
-            res = requests.get(url, headers=headers, timeout=10)
-            if res.status_code == 200:
-                content_b64 = res.json()['content']
-                content_str = base64.b64decode(content_b64).decode('utf-8')
-                return json.loads(content_str)
-            elif res.status_code == 404:
-                # अगर GitHub पर फाइल नहीं है, तो डिफॉल्ट स्ट्रक्चर अपलोड कर देगा
-                default_data = get_default_structure()
-                db_write_raw(default_data, None)
-                return default_data
-        except Exception as e:
-            print(f"GitHub Read Error: {e}")
-            
-    return get_default_structure()
-
 def db_write(data):
-    """GitHub API पर डेटा पुश (Commit) करता है"""
-    if not GITHUB_TOKEN or not GITHUB_REPO:
+    """Local JSON Engine par data update (dump) karta hai"""
+    with db_lock:
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
-        return
-
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-    
-    with db_lock:
-        try:
-            # फाइल का 'sha' टोकन लेने के लिए पहले GET रिक्वेस्ट मारनी पड़ती है
-            sha = None
-            res_get = requests.get(f"{url}?ref={GITHUB_BRANCH}", headers=headers, timeout=10)
-            if res_get.status_code == 200:
-                sha = res_get.json()['sha']
-            
-            db_write_raw(data, sha)
-        except Exception as e:
-            print(f"GitHub Write Setup Error: {e}")
-
-def db_write_raw(data, sha):
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-    
-    content_str = json.dumps(data, indent=4)
-    content_b64 = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
-    
-    payload = {
-        "message": "CRM Database Auto-Sync Update",
-        "content": content_b64,
-        "branch": GITHUB_BRANCH
-    }
-    if sha:
-        payload["sha"] = sha
-        
-    requests.put(url, headers=headers, json=payload, timeout=10)
 
 # =========================================================================
 # MIDDLEWARE ENGINE
@@ -342,7 +286,7 @@ def process_lead_automation():
     return jsonify({'success': True, 'message': f'Successfully deployed {imported_count} leads to broadcast engine.'})
 
 # =========================================================================
-# INTERLINKED CSV WORKFLOW UPLOADER (DIRECT GITHUB INGESTION)
+# INTERLINKED CSV WORKFLOW UPLOADER
 # =========================================================================
 @script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
@@ -433,7 +377,7 @@ HTML_LAYOUT = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Heavy-Duty Client-Side Export Dependencies (Bypasses Server Load) -->
+    <!-- Heavy-Duty Client-Side Export Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
@@ -549,7 +493,7 @@ HTML_LAYOUT = """
                         <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
                     </div>
                     
-                    <!-- Advanced Document Exports -->
+                    <!-- Document Exports -->
                     <div class="flex flex-wrap items-center gap-3">
                         <button onclick="exportFullCRMDataToExcel()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md">
                             <i class="fa-solid fa-file-excel"></i> Export XLSX Reports
@@ -562,7 +506,7 @@ HTML_LAYOUT = """
                               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                               <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                             </span>
-                            GitHub Sync Server Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
+                            Local Sync Engine Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
                         </div>
                     </div>
                 </div>
@@ -832,6 +776,7 @@ HTML_LAYOUT = """
         let pipelineChartInstance = null;
         let reportPieChartInstance = null;
         let reportDoughnutChartInstance = null;
+        let currentLeadStatusCounts = { 'New': 0, 'Contacted': 0, 'Proposal': 0, 'Lost': 0 };
 
         function getBlueprintPrefix() {
             let path = window.location.pathname;
@@ -939,6 +884,8 @@ HTML_LAYOUT = """
             if(document.getElementById('conversion-win-rate')) {
                 document.getElementById('conversion-win-rate').innerText = `Win Rate: ${stats.win_rate}%`;
             }
+
+            currentLeadStatusCounts = stats.lead_status_counts || { 'New': 0, 'Contacted': 0, 'Proposal': 0, 'Lost': 0 };
 
             if (!isSilent) {
                 let actList = document.getElementById('recent-activity-list');
@@ -1160,7 +1107,6 @@ HTML_LAYOUT = """
                 let waLink = `https://api.whatsapp.com/send?phone=${item.phone}&text=${encodedText}`;
                 let mailLink = `mailto:${item.email}?subject=Broadcast&body=${encodedText}`;
 
-                // Sent Tracking Pin Configuration
                 let dispatchInfo = dispatchPins[item.id];
                 let pinHtml = '';
                 if (dispatchInfo) {
@@ -1220,7 +1166,6 @@ HTML_LAYOUT = """
             if(!confirm("Flush records?")) return;
             let res = await fetchAPI('clear_automation_queue');
             if (res && res.success) { 
-                // LocalStorage pins register ko bhi clear kar dete hain safety ke liye
                 localStorage.removeItem('crm_dispatch_pins');
                 popToast("Queue reset."); 
                 loadAutomationEngine(); 
@@ -1292,7 +1237,7 @@ HTML_LAYOUT = """
         }
 
         // =========================================================================
-        // HIGH PERFORMANCE CLIENT EXPORT ENGINES (XLSX & PDF GENERATION)
+        // MULTI-SHEET COMPLETE EXCEL EXPORT ENGINE (INCLUDES CHARTS & METRICS DATA)
         // =========================================================================
         async function exportFullCRMDataToExcel() {
             try {
@@ -1303,42 +1248,58 @@ HTML_LAYOUT = """
 
                 let wb = XLSX.utils.book_new();
 
-                // Sheet 1: General Stats & Metric Summary Overview
-                let summaryData = [
-                    ["KPI / Metrics Parameter", "Registry Values"],
+                // Sheet 1: Dashboard Analytics & Charts Representation
+                let dashboardSummary = [
+                    ["ORBITEDGE SYSTEM GENERAL OPERATIONAL SUMMARY", ""],
+                    ["Metric Parameter Component", "Current Registered Value"],
                     ["Total Leads Captured", stats.total_leads || leads.length],
                     ["Active Customers Converted", stats.total_customers || customers.length],
-                    ["Uncompleted Objectives", stats.pending_tasks || 0],
+                    ["Uncompleted Pipeline Objectives", stats.pending_tasks || 0],
                     ["Pipeline Valuation Pool", stats.total_pipeline_value || 0],
-                    ["Average Active Deal Size", stats.average_deal_size || 0],
+                    ["Average Active Deal Size Value", stats.average_deal_size || 0],
                     ["Aggregate Gross Revenue Pool", stats.total_revenue_pool || 0],
-                    ["Conversion Velocity Rate (%)", `${stats.win_rate || 0}%`]
+                    ["Conversion Velocity Rate", `${stats.win_rate || 0}%`],
+                    ["", ""],
+                    ["PIPELINE BREAKDOWN (CHART COUNTS)", ""],
+                    ["Lead Status Funnel Stage", "Total Counter Logged"],
+                    ["New Leads Stage", currentLeadStatusCounts['New'] || 0],
+                    ["Contacted Interactions", currentLeadStatusCounts['Contacted'] || 0],
+                    ["Proposal Pitch Matrix", currentLeadStatusCounts['Proposal'] || 0],
+                    ["Lost Leads Counter", currentLeadStatusCounts['Lost'] || 0]
                 ];
-                let wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-                XLSX.utils.book_append_sheet(wb, wsSummary, "Dashboard Overview");
+                let wsSummary = XLSX.utils.aoa_to_sheet(dashboardSummary);
+                XLSX.utils.book_append_sheet(wb, wsSummary, "Dashboard Analytics");
 
-                // Sheet 2: Leads Registry Datatable 
-                let leadsData = [["Database ID", "Client Name", "Corporate Company", "Email Link", "Mobile Contact", "Funnel Status", "Est Value", "Date Created"]];
+                // Sheet 2: Complete Leads Datatable
+                let leadsData = [["Database ID", "Client Name", "Corporate Company Brand", "Email Address", "Mobile Number Contact", "Funnel Status Position", "Estimated Capital Deal Value", "Date Created Log"]];
                 leads.forEach(l => {
                     leadsData.push([l.id, l.name, l.company || "N/A", l.email, l.phone, l.status, l.value, l.date]);
                 });
                 let wsLeads = XLSX.utils.aoa_to_sheet(leadsData);
-                XLSX.utils.book_append_sheet(wb, wsLeads, "Leads Matrix");
+                XLSX.utils.book_append_sheet(wb, wsLeads, "Leads Pipeline");
 
-                // Sheet 3: Converted Customer Database Records
-                let customerData = [["Database ID", "Customer Entity Name", "Corporate Company", "Email ID", "Mobile Contact", "Calculated Revenue Generated", "Retention Date"]];
+                // Sheet 3: Converted Customer Database
+                let customerData = [["Database ID", "Customer Entity Name", "Corporate Company Brand", "Email ID Address", "Mobile Contact Connection", "Revenue Pool Generated", "Retention Account Date"]];
                 customers.forEach(c => {
                     customerData.push([c.id, c.name, c.company || "N/A", c.email, c.phone, c.revenue, c.joined_date]);
                 });
                 let wsCustomers = XLSX.utils.aoa_to_sheet(customerData);
                 XLSX.utils.book_append_sheet(wb, wsCustomers, "Active Customers");
 
-                // Save Workbook Output Link
-                XLSX.writeFile(wb, `CRM_System_Export_Metrics_${new Date().toISOString().slice(0, 10)}.xlsx`);
-                popToast("Excel Database Compiled Successfully!");
+                // Sheet 4: Tasks Matrix Operational Roadmap
+                let tasksData = [["Task ID Reference", "Objective Strategic Title", "Target Calendar Deadline", "Priority Weight Status", "Operational State"]];
+                tasks.forEach(t => {
+                    tasksData.push([t.id, t.title, t.due_date, t.priority, t.status]);
+                });
+                let wsTasks = XLSX.utils.aoa_to_sheet(tasksData);
+                XLSX.utils.book_append_sheet(wb, wsTasks, "Operational Roadmap");
+
+                // Save dynamic binary workbook file sheet stack
+                XLSX.writeFile(wb, `OrbitEdge_Complete_CRM_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                popToast("Excel Multi-Sheet compiled perfectly!");
             } catch (err) {
                 console.error("Critical Excel Packaging Exception:", err);
-                alert("Failed to export Excel report sheets.");
+                alert("Failed to export complete Excel report data layers.");
             }
         }
 
@@ -1348,7 +1309,6 @@ HTML_LAYOUT = """
             
             popToast("Preparing High-Res Executive PDF document structure...");
 
-            // Optimal configuration logic keeping canvas and graphs completely readable
             let pdfOptions = {
                 margin: [10, 10, 10, 10],
                 filename: `OrbitEdge_CRM_Executive_Summary_${new Date().toISOString().slice(0,10)}.pdf`,
