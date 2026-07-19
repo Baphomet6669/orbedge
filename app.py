@@ -1,16 +1,6 @@
 from flask import Flask, render_template_string, request, redirect, session, url_for
 import os
-
-# --- Blueprints Import ---
-from script33 import script33_bp
-from script34 import script34_bp
-from script35 import script35_bp
-from script36 import script36_bp
-from script37 import script37_bp
-from script38 import script38_bp
-from script39 import script39_bp
-from script40 import script40_bp
-
+import sys
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
@@ -20,10 +10,32 @@ app.secret_key = "PHANTOM_ULTRA_SECRET_KEY" # Session secure rakhne ke liye
 ADMIN_USER = "media"
 ADMIN_PASS = "@rbitedge789"
 
+# --- 🛡️ FAIL-SAFE BLUEPRINT REGISTRATION ENGINE ---
+# Yeh ensure karega ki agar kisi script me error ho, toh dashboard crash na ho
+blueprints_to_load = [
+    ('script33', 'script33_bp', '/script33'),
+    ('script34', 'script34_bp', '/script34'),
+    ('script35', 'script35_bp', '/script35'),
+    ('script36', 'script36_bp', '/script36'),
+    ('script37', 'script37_bp', '/script37'),
+    ('script38', 'script38_bp', '/script38'),
+    ('script39', 'script39_bp', '/script39'),
+    ('script40', 'script40_bp', '/script40'),
+]
+
+for module_name, bp_name, prefix in blueprints_to_load:
+    try:
+        # Dynamic import taaki missing/corrupted blueprints track ho sakein
+        module = __import__(module_name)
+        blueprint_object = getattr(module, bp_name)
+        app.register_blueprint(blueprint_object, url_prefix=prefix)
+        print(self := f"[SUCCESS] Registered {module_name} successfully.")
+    except Exception as e:
+        print(self := f"[ERROR] Failed to load {module_name}: {str(e)}", file=sys.stderr)
+
 # --- 🛡️ SECURITY MIDDLEWARE ---
 @app.before_request
 def check_login():
-    # Login page, static files, aur active session ko allow karein
     allowed_routes = ['login', 'static']
     if request.endpoint not in allowed_routes and 'logged_in' not in session:
         return redirect(url_for('login'))
@@ -101,17 +113,6 @@ def home():
     </body>
     </html>
     """
-
-# --- Blueprints Register Karein ---
-app.register_blueprint(script33_bp, url_prefix='/script33')
-app.register_blueprint(script34_bp, url_prefix='/script34')
-app.register_blueprint(script35_bp, url_prefix='/script35')
-app.register_blueprint(script36_bp, url_prefix='/script36')
-app.register_blueprint(script37_bp, url_prefix='/script37')
-app.register_blueprint(script38_bp, url_prefix='/script38')
-app.register_blueprint(script39_bp, url_prefix='/script39')
-app.register_blueprint(script40_bp, url_prefix='/script40')
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
