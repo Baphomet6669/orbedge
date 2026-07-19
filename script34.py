@@ -3,8 +3,6 @@ import json
 import time
 import random
 import csv
-import requests
-import base64
 from io import StringIO
 from threading import Lock
 from flask import Flask, Blueprint, render_template_string, request, jsonify, session, redirect, url_for
@@ -37,9 +35,11 @@ def get_default_structure():
             {"id": 3, "name": "Priya Singh", "email": "priya@example.com", "phone": "+917654321098", "company": "Singh Org", "revenue": 150000, "joined_date": "2026-07-11"}
         ],
         'tasks': [
-            {"id": 1, "title": "Setup Marketing Automation Gateway", "due_date": "2026-07-15", "priority": "High", "status": "Pending"}
+            {"id": 1, "title": "Setup Marketing Automation Gateway", "due_date": "2026-07-15", "priority": "High", "status": "Pending", "type": "Task"}
         ],
-        'automation_queue': []
+        'automation_queue': [],
+        'invoices': [],
+        'quotations': []
     }
 
 def db_read():
@@ -48,7 +48,11 @@ def db_read():
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r') as f:
                 try: 
-                    return json.load(f)
+                    data = json.load(f)
+                    # Core structure checks to maintain backward compatibility
+                    if 'invoices' not in data: data['invoices'] = []
+                    if 'quotations' not in data: data['quotations'] = []
+                    return data
                 except: 
                     return get_default_structure()
         return get_default_structure()
@@ -99,6 +103,7 @@ def get_dashboard_stats():
     leads = db.get('leads', [])
     customers = db.get('customers', [])
     tasks = db.get('tasks', [])
+    invoices = db.get('invoices', [])
     
     total_value = sum(float(l.get('value', 0) or 0) for l in leads)
     leads_count = len(leads)
@@ -108,6 +113,15 @@ def get_dashboard_stats():
     
     total_pipeline_entities = leads_count + len(customers)
     win_rate = (len(customers) / total_pipeline_entities * 100) if total_pipeline_entities > 0 else 0
+
+    # Sales Forecast Logic (Weighted probability model calculation)
+    forecast_value = 0
+    for l in leads:
+        status = l.get('status', 'New')
+        val = float(l.get('value', 0) or 0)
+        if status == 'New': forecast_value += val * 0.15
+        elif status == 'Contacted': forecast_value += val * 0.40
+        elif status == 'Proposal': forecast_value += val * 0.75
 
     stats = {
         'total_leads': leads_count,
@@ -119,6 +133,8 @@ def get_dashboard_stats():
         'total_revenue_pool': total_revenue,
         'high_value_leads': high_value_leads_count,
         'win_rate': round(win_rate, 1),
+        'sales_forecast': round(forecast_value, 2),
+        'total_invoices': len(invoices),
         'lead_status_counts': {'New': 0, 'Contacted': 0, 'Proposal': 0, 'Lost': 0},
         'recent_activity': list(reversed(leads))[:6]
     }
@@ -204,6 +220,9 @@ def get_customers():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('customers', []))
 
+# =========================================================================
+# ADVANCED REMINDERS & TASK MANAGEMENT HOOKS
+# =========================================================================
 @script34_bp.route('/api/save_task', methods=['POST'])
 def save_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
@@ -213,6 +232,7 @@ def save_task():
         'title': request.form.get('title', ''),
         'due_date': request.form.get('due_date', ''),
         'priority': request.form.get('priority', 'Medium'),
+        'type': request.form.get('type', 'Task'),
         'status': 'Pending'
     })
     db_write(db)
@@ -241,6 +261,58 @@ def delete_task():
     db = db_read()
     target_id = int(request.form.get('id', 0))
     db['tasks'] = [t for t in db['tasks'] if t['id'] != target_id]
+    db_write(db)
+    return jsonify({'success': True})
+
+# =========================================================================
+# FINANCIALS INVOICING & QUOTATION MANAGEMENT HOOKS
+# =========================================================================
+@script34_bp.route('/api/get_financials', methods=['GET'])
+def get_financials():
+    if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
+    db = db_read()
+    return jsonify({
+        'invoices': db.get('invoices', []),
+        'quotations': db.get('quotations', [])
+    })
+
+@script34_bp.route('/api/save_document', methods=['POST'])
+def save_document():
+    if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
+    db = db_read()
+    doc_type = request.form.get('doc_type', 'invoice') 
+    
+    doc_data = {
+        'id': int(time.time() + random.randint(1000, 9999)),
+        'client_name': request.form.get('client_name', ''),
+        'amount': float(request.form.get('amount', 0) or 0),
+        'items': request.form.get('items', 'General Consultation'),
+        'date': time.strftime('%Y-%m-%d'),
+        'status': 'Unpaid' if doc_type == 'invoice' else 'Draft'
+    }
+    
+    if doc_type == 'invoice':
+        db['invoices'].append(doc_data)
+    else:
+        db['quotations'].append(doc_data)
+        
+    db_write(db)
+    return jsonify({'success': True})
+
+@script34_bp.route('/api/update_doc_status', methods=['POST'])
+def update_doc_status():
+    if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
+    db = db_read()
+    doc_id = int(request.form.get('id', 0))
+    doc_type = request.form.get('doc_type', 'invoice')
+    new_status = request.form.get('status', '')
+    
+    target_key = 'invoices' if doc_type == 'invoice' else 'quotations'
+    for doc in db.get(target_key, []):
+        if doc['id'] == doc_id:
+            doc['status'] = new_status
+            break
+            
     db_write(db)
     return jsonify({'success': True})
 
@@ -365,7 +437,7 @@ def upload_automation_sheet():
 
 app.register_blueprint(script34_bp, url_for_security='/')
 
-# HTML UI Layout Script (Excel, PDF Export & Tracking Markers Added Seamlessly)
+# HTML UI Layout Injecting dynamic layouts & Financial stacks
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
@@ -465,10 +537,11 @@ HTML_LAYOUT = """
             </div>
             <nav class="flex-1 p-4 space-y-1.5">
                 <button onclick="switchTab('dashboard')" id="btn-dashboard" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-gauge w-5 text-center"></i> Dashboard</button>
-                <button onclick="switchTab('leads')" id="btn-leads" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-bullseye w-5 text-center"></i> Pipeline & Leads</button>
+                <button onclick="switchTab('leads')" id="btn-leads" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-bullseye w-5 text-center"></i> Pipeline & Deals</button>
                 <button onclick="switchTab('customers')" id="btn-customers" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-users w-5 text-center"></i> Active Customers</button>
                 <button onclick="switchTab('automation')" id="btn-automation" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-paper-plane w-5 text-center"></i> Bulk Automation</button>
-                <button onclick="switchTab('tasks')" id="btn-tasks" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-list-check w-5 text-center"></i> Tasks Matrix</button>
+                <button onclick="switchTab('tasks')" id="btn-tasks" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-list-check w-5 text-center"></i> Tasks & Reminders</button>
+                <button onclick="switchTab('sales_finance')" id="btn-sales_finance" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-file-invoice-dollar w-5 text-center"></i> Financial Matrix</button>
                 <button onclick="switchTab('reports')" id="btn-reports" class="sidebar-link w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-900 hover:text-white cursor-pointer"><i class="fa-solid fa-chart-pie w-5 text-center"></i> Advanced Reports</button>
             </nav>
             <div class="p-4 border-t border-gray-900 space-y-2">
@@ -511,7 +584,7 @@ HTML_LAYOUT = """
                     </div>
                 </div>
                 
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-indigo-500/10 text-indigo-600 rounded-xl"><i class="fa-solid fa-bolt text-lg"></i></div>
                         <div><p class="text-[10px] font-bold uppercase text-custom-muted">Leads</p><h3 id="stat-leads" class="text-xl font-extrabold text-custom-main">0</h3></div>
@@ -539,6 +612,11 @@ HTML_LAYOUT = """
                     <div class="panel-card p-4 rounded-2xl border flex items-center gap-3">
                         <div class="p-2.5 bg-emerald-500/20 text-emerald-600 rounded-xl"><i class="fa-solid fa-gavel text-lg"></i></div>
                         <div><p class="text-[10px] font-bold uppercase text-custom-muted">Revenue</p><h3 id="stat-revenue-pool" class="text-xl font-extrabold text-emerald-500">₹0</h3></div>
+                    </div>
+                    <!-- Sales Forecast Card -->
+                    <div class="panel-card p-4 rounded-2xl border bg-gradient-to-br from-indigo-900/20 to-violet-900/20 flex items-center gap-3">
+                        <div class="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-xl"><i class="fa-solid fa-crystal-ball text-lg"></i></div>
+                        <div><p class="text-[10px] font-bold uppercase text-indigo-400">Forecast</p><h3 id="stat-forecast-value" class="text-base font-extrabold text-indigo-300">₹0</h3></div>
                     </div>
                 </div>
 
@@ -669,15 +747,24 @@ HTML_LAYOUT = """
                 </div>
             </div>
 
-            <!-- TASKS TAB -->
+            <!-- TASKS, CALLS & MEETINGS REMINDERS MATRIX -->
             <div id="tab-tasks" class="tab-content hidden space-y-6">
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div class="panel-card p-6 rounded-2xl border h-fit shadow-sm">
-                        <h3 class="font-bold text-base mb-4 text-indigo-500">Register New Objective</h3>
+                        <h3 class="font-bold text-base mb-4 text-indigo-500"><i class="fa-solid fa-calendar-check"></i> Register Objective / Reminder</h3>
                         <form id="task-form" onsubmit="handleTaskSubmit(event)" class="space-y-4">
                             <div>
                                 <label class="block text-xs font-bold text-custom-muted mb-1.5">Objective Title</label>
                                 <input type="text" id="task_title" required placeholder="E.g., Review Dashboard System" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-custom-muted mb-1.5">Objective Type</label>
+                                <select id="task_type" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none">
+                                    <option value="Task">📅 General Task Assignment</option>
+                                    <option value="Follow-up">🔔 Follow-up Reminder</option>
+                                    <option value="Call">📞 Call Reminder</option>
+                                    <option value="Meeting">🤝 Meeting Assignment</option>
+                                </select>
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
@@ -691,12 +778,78 @@ HTML_LAYOUT = """
                                     </select>
                                 </div>
                             </div>
-                            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs cursor-pointer transition">Inject Task Engine</button>
+                            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs cursor-pointer transition">Inject Objective Engine</button>
                         </form>
                     </div>
                     <div class="lg:col-span-2 panel-card p-6 rounded-2xl border flex flex-col shadow-sm">
-                        <h3 class="font-bold text-base mb-4 text-custom-main">Active Strategic Roadmap</h3>
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-base text-custom-main">Active Strategic Roadmap</h3>
+                            <button onclick="syncToLocalCalendar()" class="bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-xl text-xs font-bold hover:bg-indigo-500/20 transition">
+                                <i class="fa-solid fa-calendar-days"></i> Local Calendar Sync
+                            </button>
+                        </div>
                         <div id="tasks-list" class="space-y-3 flex-1 overflow-y-auto max-h-[450px]"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SALES AUTOMATION INVOICING & QUOTATIONS LAYER -->
+            <div id="tab-sales_finance" class="tab-content hidden space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="panel-card p-6 rounded-2xl border h-fit shadow-sm">
+                        <h3 class="font-bold text-base mb-4 text-emerald-500"><i class="fa-solid fa-file-invoice"></i> Generate Financial Record</h3>
+                        <form id="doc-form" onsubmit="handleDocSubmit(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-custom-muted mb-1.5">Document Framework</label>
+                                <select id="doc_type" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none">
+                                    <option value="invoice">📄 Invoice Generator</option>
+                                    <option value="quotation">📝 Quotation Generator</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-custom-muted mb-1.5">Client Target Name</label>
+                                <input type="text" id="doc_client" required placeholder="E.g., Shikhotech Academy" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-custom-muted mb-1.5">Line Items Description</label>
+                                <input type="text" id="doc_items" required placeholder="E.g., Security Auditing Program" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-custom-muted mb-1.5">Valuation Amount (₹)</label>
+                                <input type="number" id="doc_amount" required placeholder="50000" class="w-full input-custom border rounded-xl p-2.5 text-xs focus:outline-none">
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs cursor-pointer transition">Commit Financial Entry</button>
+                        </form>
+                    </div>
+
+                    <div class="lg:col-span-2 space-y-6">
+                        <div class="panel-card p-6 rounded-2xl border flex flex-col shadow-sm">
+                            <h3 class="font-bold text-sm text-custom-main mb-3"><i class="fa-solid fa-receipt text-emerald-500"></i> Issued Invoices Stack</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-xs">
+                                    <thead>
+                                        <tr class="border-b border-custom text-custom-muted font-bold bg-gray-500/5">
+                                            <th class="p-2.5">Client</th><th class="p-2.5">Description</th><th class="p-2.5">Amount</th><th class="p-2.5">Status</th><th class="p-2.5 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="invoice-table-body" class="divide-y divide-custom text-custom-main"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="panel-card p-6 rounded-2xl border flex flex-col shadow-sm">
+                            <h3 class="font-bold text-sm text-custom-main mb-3"><i class="fa-solid fa-file-lines text-indigo-500"></i> Open Active Quotations</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-xs">
+                                    <thead>
+                                        <tr class="border-b border-custom text-custom-muted font-bold bg-gray-500/5">
+                                            <th class="p-2.5">Client</th><th class="p-2.5">Description</th><th class="p-2.5">Amount</th><th class="p-2.5">Status</th><th class="p-2.5 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="quotation-table-body" class="divide-y divide-custom text-custom-main"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -866,6 +1019,7 @@ HTML_LAYOUT = """
             if (target === 'customers') loadCustomersEngine();
             if (target === 'automation') loadAutomationEngine();
             if (target === 'tasks') loadTasksEngine();
+            if (target === 'sales_finance') loadSalesFinanceEngine();
             if (target === 'reports') loadReportsEngine();
         }
 
@@ -880,6 +1034,7 @@ HTML_LAYOUT = """
             document.getElementById('stat-pipeline-value').innerText = '₹' + parseFloat(stats.total_pipeline_value || 0).toLocaleString('en-IN');
             document.getElementById('stat-avg-deal').innerText = '₹' + parseFloat(stats.average_deal_size || 0).toLocaleString('en-IN', {maximumFractionDigits: 0});
             document.getElementById('stat-revenue-pool').innerText = '₹' + parseFloat(stats.total_revenue_pool || 0).toLocaleString('en-IN', {maximumFractionDigits: 0});
+            document.getElementById('stat-forecast-value').innerText = '₹' + parseFloat(stats.sales_forecast || 0).toLocaleString('en-IN', {maximumFractionDigits: 0});
             
             if(document.getElementById('conversion-win-rate')) {
                 document.getElementById('conversion-win-rate').innerText = `Win Rate: ${stats.win_rate}%`;
@@ -1074,9 +1229,6 @@ HTML_LAYOUT = """
             renderAutomationTable();
         }
 
-        // =========================================================================
-        // WHATSAPP & MAIL PIN SYSTEM LOGIC
-        // =========================================================================
         function getDispatchLog() {
             try {
                 return JSON.parse(localStorage.getItem('crm_dispatch_pins') || '{}');
@@ -1172,6 +1324,9 @@ HTML_LAYOUT = """
             }
         }
 
+        // =========================================================================
+        // TASKS MATRIX & REMINDERS HANDLERS
+        // =========================================================================
         async function loadTasksEngine() {
             rawTasks = await fetchAPI('get_tasks') || [];
             let container = document.getElementById('tasks-list'); container.innerHTML = '';
@@ -1180,11 +1335,22 @@ HTML_LAYOUT = """
             }
             rawTasks.forEach(t => {
                 let isComp = t.status === 'Completed';
+                let typeBadgeColor = 'bg-gray-500/10 text-custom-muted';
+                if(t.type === 'Follow-up') typeBadgeColor = 'bg-amber-500/10 text-amber-500';
+                if(t.type === 'Call') typeBadgeColor = 'bg-emerald-500/10 text-emerald-500';
+                if(t.type === 'Meeting') typeBadgeColor = 'bg-purple-500/10 text-purple-500';
+
                 container.innerHTML += `
                 <div class="flex items-center justify-between p-3 bg-gray-500/5 border border-custom rounded-xl ${isComp?'opacity-40 line-through':''}">
                     <div class="flex items-center gap-3">
                         <input type="checkbox" ${isComp?'checked':''} onclick="toggleTask(${t.id})" class="w-4 h-4 text-indigo-600 rounded focus:ring-0">
-                        <div><p class="text-xs font-bold text-custom-main">${t.title}</p><span class="text-[10px] text-custom-muted">Due: ${t.due_date}</span></div>
+                        <div>
+                            <p class="text-xs font-bold text-custom-main">${t.title}</p>
+                            <div class="flex gap-2 items-center mt-1">
+                                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded ${typeBadgeColor}">${t.type || 'Task'}</span>
+                                <span class="text-[10px] text-custom-muted">Due: ${t.due_date}</span>
+                            </div>
+                        </div>
                     </div>
                     <button onclick="deleteTask(${t.id})" class="text-gray-400 hover:text-rose-500 text-xs transition p-1"><i class="fa-solid fa-trash-can"></i></button>
                 </div>`;
@@ -1195,13 +1361,108 @@ HTML_LAYOUT = """
             e.preventDefault();
             let fd = new FormData();
             fd.append('title', document.getElementById('task_title').value);
+            fd.append('type', document.getElementById('task_type').value);
             fd.append('due_date', document.getElementById('task_due').value);
             fd.append('priority', document.getElementById('task_priority').value);
-            await fetchAPI('save_task', fd); document.getElementById('task-form').reset(); loadTasksEngine();
+            await fetchAPI('save_task', fd); 
+            document.getElementById('task-form').reset(); 
+            loadTasksEngine();
+            popToast("Objective Registered!");
         }
 
         async function toggleTask(id) { let fd = new FormData(); fd.append('id', id); await fetchAPI('toggle_task', fd); loadTasksEngine(); }
         async function deleteTask(id) { let fd = new FormData(); fd.append('id', id); await fetchAPI('delete_task', fd); loadTasksEngine(); }
+
+        function syncToLocalCalendar() {
+            if(rawTasks.length === 0) return alert("No operational strategic milestones found to export.");
+            let icsContent = "BEGIN:VCALENDAR\\nVERSION:2.0\\nPRODID:-//OrbitEdge Media CRM//EN\\n";
+            rawTasks.forEach(t => {
+                let cleanDate = t.due_date.replace(/-/g, "");
+                icsContent += "BEGIN:VEVENT\\n";
+                icsContent += `SUMMARY:[${t.type || 'Task'}] ${t.title}\\n`;
+                icsContent += `DTSTART:${cleanDate}T090000\\n`;
+                icsContent += `DTEND:${cleanDate}T100000\\n`;
+                icsContent += "DESCRIPTION:Automated Synchronization Rule from OrbitEdge CRM Platform Layout.\\n";
+                icsContent += "END:VEVENT\\n";
+            });
+            icsContent += "END:VCALENDAR";
+            let link = document.createElement("a");
+            link.setAttribute("href", "data:text/calendar;charset=utf-8," + encodeURIComponent(icsContent));
+            link.setAttribute("download", "OrbitEdge_CRM_Calendar_Matrix.ics");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            popToast("Calendar engine file package exported successfully!");
+        }
+
+        # =========================================================================
+        # FINANCIAL AUTOMATION LAYER PLATFORM LOGIC
+        # =========================================================================
+        async function loadSalesFinanceEngine() {
+            let res = await fetchAPI('get_financials');
+            if(!res) return;
+            
+            let invBody = document.getElementById('invoice-table-body');
+            let qtnBody = document.getElementById('quotation-table-body');
+            invBody.innerHTML = ''; qtnBody.innerHTML = '';
+            
+            if(res.invoices.length === 0) invBody.innerHTML = `<tr><td colspan="5" class="p-3 text-center text-gray-500">No Invoices generated.</td></tr>`;
+            res.invoices.forEach(inv => {
+                let colorClass = inv.status === 'Paid' ? 'text-emerald-500 bg-emerald-500/10' : 'text-amber-500 bg-amber-500/10';
+                invBody.innerHTML += `
+                <tr class="hover:bg-gray-500/5 transition border-b border-custom">
+                    <td class="p-2.5 font-bold">${inv.client_name}</td><td class="p-2.5 text-custom-muted">${inv.items}</td>
+                    <td class="p-2.5 font-bold text-emerald-500">₹${inv.amount}</td>
+                    <td class="p-2.5"><span class="text-[9px] px-2 py-0.5 rounded font-bold ${colorClass}">${inv.status}</span></td>
+                    <td class="p-2.5 text-right space-x-1 whitespace-nowrap">
+                        ${inv.status !== 'Paid' ? `<button onclick="updateDocStatus(${inv.id}, 'invoice', 'Paid')" class="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-600 font-bold px-2 py-0.5 rounded text-[10px] cursor-pointer">Mark Paid</button>`:''}
+                        <button onclick="triggerPaymentReminder('${inv.client_name}', ${inv.amount})" class="bg-rose-500/20 hover:bg-rose-500/30 text-rose-600 font-bold px-2 py-0.5 rounded text-[10px] cursor-pointer"><i class="fa-solid fa-bell"></i> Remind</button>
+                    </td>
+                </tr>`;
+            });
+
+            if(res.quotations.length === 0) qtnBody.innerHTML = `<tr><td colspan="5" class="p-3 text-center text-gray-500">No Quotations compiled.</td></tr>`;
+            res.quotations.forEach(qtn => {
+                qtnBody.innerHTML += `
+                <tr class="hover:bg-gray-500/5 transition border-b border-custom">
+                    <td class="p-2.5 font-bold">${qtn.client_name}</td><td class="p-2.5 text-custom-muted">${qtn.items}</td>
+                    <td class="p-2.5 font-bold text-indigo-500">₹${qtn.amount}</td>
+                    <td class="p-2.5"><span class="text-[9px] px-2 py-0.5 rounded bg-gray-500/10 text-custom-muted font-bold">${qtn.status}</span></td>
+                    <td class="p-2.5 text-right whitespace-nowrap">
+                        <button onclick="updateDocStatus(${qtn.id}, 'quotation', 'Approved')" class="bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-600 font-bold px-2 py-0.5 rounded text-[10px] cursor-pointer">Accept Proposal</button>
+                    </td>
+                </tr>`;
+            });
+        }
+
+        async function handleDocSubmit(e) {
+            e.preventDefault();
+            let fd = new FormData();
+            fd.append('doc_type', document.getElementById('doc_type').value);
+            fd.append('client_name', document.getElementById('doc_client').value);
+            fd.append('items', document.getElementById('doc_items').value);
+            fd.append('amount', document.getElementById('doc_amount').value);
+            
+            await fetchAPI('save_document', fd);
+            document.getElementById('doc-form').reset();
+            loadSalesFinanceEngine();
+            popToast("Financial Instrument Dispatched to Stack Ledger!");
+        }
+
+        async function updateDocStatus(id, docType, status) {
+            let fd = new FormData();
+            fd.append('id', id);
+            fd.append('doc_type', docType);
+            fd.append('status', status);
+            await fetchAPI('update_doc_status', fd);
+            loadSalesFinanceEngine();
+            popToast("Status sync updated perfectly!");
+        }
+
+        function triggerPaymentReminder(client, amount) {
+            let alertMsg = `Dear ${client}, this is an automated courtesy prompt regarding pending invoice balance payload of ₹${amount}. Kindly process the settlement channels.`;
+            alert(`Payment Reminder Triggered:\\n\\n"${alertMsg}"`);
+        }
 
         async function loadReportsEngine() {
             let stats = await fetchAPI('get_dashboard_stats');
@@ -1236,9 +1497,6 @@ HTML_LAYOUT = """
             link.setAttribute("download", "CRM_Leads.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
         }
 
-        // =========================================================================
-        // MULTI-SHEET COMPLETE EXCEL EXPORT ENGINE (INCLUDES CHARTS & METRICS DATA)
-        // =========================================================================
         async function exportFullCRMDataToExcel() {
             try {
                 let stats = await fetchAPI('get_dashboard_stats') || {};
@@ -1248,7 +1506,6 @@ HTML_LAYOUT = """
 
                 let wb = XLSX.utils.book_new();
 
-                // Sheet 1: Dashboard Analytics & Charts Representation
                 let dashboardSummary = [
                     ["ORBITEDGE SYSTEM GENERAL OPERATIONAL SUMMARY", ""],
                     ["Metric Parameter Component", "Current Registered Value"],
@@ -1259,6 +1516,7 @@ HTML_LAYOUT = """
                     ["Average Active Deal Size Value", stats.average_deal_size || 0],
                     ["Aggregate Gross Revenue Pool", stats.total_revenue_pool || 0],
                     ["Conversion Velocity Rate", `${stats.win_rate || 0}%`],
+                    ["Sales Weighted Forecast Pool", stats.sales_forecast || 0],
                     ["", ""],
                     ["PIPELINE BREAKDOWN (CHART COUNTS)", ""],
                     ["Lead Status Funnel Stage", "Total Counter Logged"],
@@ -1270,7 +1528,6 @@ HTML_LAYOUT = """
                 let wsSummary = XLSX.utils.aoa_to_sheet(dashboardSummary);
                 XLSX.utils.book_append_sheet(wb, wsSummary, "Dashboard Analytics");
 
-                // Sheet 2: Complete Leads Datatable
                 let leadsData = [["Database ID", "Client Name", "Corporate Company Brand", "Email Address", "Mobile Number Contact", "Funnel Status Position", "Estimated Capital Deal Value", "Date Created Log"]];
                 leads.forEach(l => {
                     leadsData.push([l.id, l.name, l.company || "N/A", l.email, l.phone, l.status, l.value, l.date]);
@@ -1278,7 +1535,6 @@ HTML_LAYOUT = """
                 let wsLeads = XLSX.utils.aoa_to_sheet(leadsData);
                 XLSX.utils.book_append_sheet(wb, wsLeads, "Leads Pipeline");
 
-                // Sheet 3: Converted Customer Database
                 let customerData = [["Database ID", "Customer Entity Name", "Corporate Company Brand", "Email ID Address", "Mobile Contact Connection", "Revenue Pool Generated", "Retention Account Date"]];
                 customers.forEach(c => {
                     customerData.push([c.id, c.name, c.company || "N/A", c.email, c.phone, c.revenue, c.joined_date]);
@@ -1286,15 +1542,13 @@ HTML_LAYOUT = """
                 let wsCustomers = XLSX.utils.aoa_to_sheet(customerData);
                 XLSX.utils.book_append_sheet(wb, wsCustomers, "Active Customers");
 
-                // Sheet 4: Tasks Matrix Operational Roadmap
-                let tasksData = [["Task ID Reference", "Objective Strategic Title", "Target Calendar Deadline", "Priority Weight Status", "Operational State"]];
+                let tasksData = [["Task ID Reference", "Objective Strategic Title", "Type", "Target Calendar Deadline", "Priority Weight Status", "Operational State"]];
                 tasks.forEach(t => {
-                    tasksData.push([t.id, t.title, t.due_date, t.priority, t.status]);
+                    tasksData.push([t.id, t.title, t.type || 'Task', t.due_date, t.priority, t.status]);
                 });
                 let wsTasks = XLSX.utils.aoa_to_sheet(tasksData);
                 XLSX.utils.book_append_sheet(wb, wsTasks, "Operational Roadmap");
 
-                // Save dynamic binary workbook file sheet stack
                 XLSX.writeFile(wb, `OrbitEdge_Complete_CRM_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
                 popToast("Excel Multi-Sheet compiled perfectly!");
             } catch (err) {
@@ -1336,4 +1590,3 @@ HTML_LAYOUT = """
 # =========================================================================
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
-
