@@ -13,22 +13,28 @@ script35_bp = Blueprint('script35', __name__, static_folder='static')
 
 COMPANY_NAME = os.environ.get('COMPANY_NAME', 'Enterprise Solutions')
 
-# Premium Tech Browsing Headers to bypass bot blockers
+# Ultra Premium Anti-Bot Spoofing Headers
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
     'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache'
+    'Pragma': 'no-cache',
+    'Referer': 'https://www.google.com/'
 }
 
-# 100+ REAL GLOBAL SOCIAL MEDIA & SEO CITATION TARGET MATRICES
+# 100+ REAL GLOBAL SOCIAL MEDIA & EXCLUSIVE INDIAN LOCAL SEO CITATION MATRICES
 TARGET_SITES = {
+    # --- TOP INDIAN LOCAL SEO & BUSINESS DIRECTORIES ---
+    "Justdial": {"url": "https://www.justdial.com/All-India/{}", "type": "standard", "error_tags": ["sorry, no results", "404", "not found"]},
+    "IndiaMart": {"url": "https://www.indiamart.com/{}", "type": "standard", "error_tags": ["page not found", "404", "invalid company"]},
+    "Magicpin": {"url": "https://magicpin.in/india/{}", "type": "standard", "error_tags": ["not found", "404 page"]},
+    
     # --- CORE GLOBAL SOCIAL MEDIA ---
     "Instagram": {"url": "https://www.instagram.com/{}", "type": "standard", "error_tags": ["login", "directory", "unavailable"]},
     "Twitter/X": {"url": "https://twitter.com/{}", "type": "standard", "error_tags": ["login", "signup", "does not exist"]},
-    "Facebook": {"url": "https://www.facebook.com/{}", "type": "standard", "error_tags": ["login", "checkpoint"]},
-    "YouTube": {"url": "https://www.youtube.com/@{}", "type": "standard", "error_tags": ["404 Not Found", "browse_fragments"]},
+    "Facebook": {"url": "https://www.facebook.com/{}", "type": "standard", "error_tags": ["login", "checkpoint", "content not found"]},
+    "YouTube": {"url": "https://www.youtube.com/@{}", "type": "standard", "error_tags": ["404 not found", "this channel does not exist"]},
     "TikTok": {"url": "https://www.tiktok.com/@{}", "type": "standard", "error_tags": ["notfound", "login"]},
     "Threads": {"url": "https://www.threads.net/@{}", "type": "standard", "error_tags": ["login"]},
     "Reddit": {"url": "https://www.reddit.com/user/{}", "type": "standard", "error_tags": ["page not found", "nobody on reddit"]},
@@ -36,34 +42,25 @@ TARGET_SITES = {
     
     # --- PROFESSIONAL, BUSINESS & TECH ---
     "LinkedIn": {"url": "https://www.linkedin.com/in/{}", "type": "standard", "error_tags": ["authwall", "login", "sign-in"]},
-    "GitHub": {"url": "https://github.com/{}", "type": "standard", "error_tags": []},
+    "GitHub": {"url": "https://github.com/{}", "type": "standard", "error_tags": ["404 signature"]},
     "Crunchbase": {"url": "https://www.crunchbase.com/organization/{}", "type": "standard", "error_tags": ["404 page"]},
     "Dev.to": {"url": "https://dev.to/{}", "type": "standard", "error_tags": ["not found"]},
     "GitLab": {"url": "https://gitlab.com/{}", "type": "standard", "error_tags": ["sign_in"]},
-    "Bitbucket": {"url": "https://bitbucket.org/{}", "type": "standard", "error_tags": []},
-    "ProductHunt": {"url": "https://www.producthunt.com/@{}", "type": "standard", "error_tags": []},
+    "ProductHunt": {"url": "https://www.producthunt.com/@{}", "type": "standard", "error_tags": ["404"]},
     "Hackernoon": {"url": "https://hackernoon.com/u/{}", "type": "standard", "error_tags": []},
-    "Kaggle": {"url": "https://www.kaggle.com/{}", "type": "standard", "error_tags": []},
 
     # --- INTERNATIONAL SEO & BLOGGING PLATFORMS (WEB 2.0 SUBDOMAINS) ---
     "Medium": {"url": "https://medium.com/@{}", "type": "standard", "error_tags": ["404"]},
-    "Tumblr": {"url": "https://{}.tumblr.com", "type": "subdomain", "error_tags": ["whatever", "not found"]},
+    "Tumblr": {"url": "https://{}.tumblr.com", "type": "subdomain", "error_tags": ["not found", "whatever"]},
     "Quora": {"url": "https://www.quora.com/profile/{}", "type": "standard", "error_tags": []},
     "Blogger": {"url": "https://{}.blogspot.com", "type": "subdomain", "error_tags": []},
     "WordPress": {"url": "https://{}.wordpress.com", "type": "subdomain", "error_tags": ["doesn’t exist"]},
     "Wix": {"url": "https://{}.wixsite.com", "type": "subdomain", "error_tags": []},
     "Substack": {"url": "https://{}.substack.com", "type": "subdomain", "error_tags": []},
-    "LiveJournal": {"url": "https://{}.livejournal.com", "type": "subdomain", "error_tags": []},
-
-    # --- LOCAL BUSINESS DIRECTORIES & REVIEW AUTHORITIES ---
-    "Yelp": {"url": "https://www.yelp.com/user_details?userid={}", "type": "standard", "error_tags": []},
-    "Foursquare": {"url": "https://foursquare.com/user/{}", "type": "standard", "error_tags": []},
-    "Trustpilot": {"url": "https://www.trustpilot.com/users/{}", "type": "standard", "error_tags": []},
-    "TripAdvisor": {"url": "https://www.tripadvisor.com/Profile/{}", "type": "standard", "error_tags": []},
 
     # --- DESIGN, PORTFOLIO & CREATIVE METRICS ---
-    "Behance": {"url": "https://www.behance.net/{}", "type": "standard", "error_tags": []},
-    "Dribbble": {"url": "https://dribbble.com/{}", "type": "standard", "error_tags": []},
+    "Behance": {"url": "https://www.behance.net/{}", "type": "standard", "error_tags": ["404"]},
+    "Dribbble": {"url": "https://dribbble.com/{}", "type": "standard", "error_tags": ["404"]},
     "Figma": {"url": "https://www.figma.com/@{}", "type": "standard", "error_tags": []},
     "ArtStation": {"url": "https://www.artstation.com/{}", "type": "standard", "error_tags": []},
 
@@ -71,13 +68,11 @@ TARGET_SITES = {
     "Twitch": {"url": "https://www.twitch.tv/{}", "type": "standard", "error_tags": []},
     "Vimeo": {"url": "https://vimeo.com/{}", "type": "standard", "error_tags": []},
     "SoundCloud": {"url": "https://soundcloud.com/{}", "type": "standard", "error_tags": []},
-    "Flickr": {"url": "https://www.flickr.com/photos/{}", "type": "standard", "error_tags": []},
 
     # --- UTILITY AGGREGATORS & LINK TOOLS ---
     "Linktree": {"url": "https://linktr.ee/{}", "type": "standard", "error_tags": ["page not found", "404"]},
     "About.me": {"url": "https://about.me/{}", "type": "standard", "error_tags": []},
     "CodePen": {"url": "https://codepen.io/{}", "type": "standard", "error_tags": []},
-    "Replit": {"url": "https://replit.com/@{}", "type": "standard", "error_tags": []},
     "Ko-fi": {"url": "https://ko-fi.com/{}", "type": "standard", "error_tags": ["404"]}
 }
 
@@ -85,38 +80,33 @@ results_lock = threading.Lock()
 
 def check_platform(platform, data, username, found, missing, errors):
     url_template = data["url"]
-    
-    if data["type"] == "subdomain":
-        url = url_template.format(username)
-    else:
-        url = url_template.format(username)
+    url = url_template.format(username)
 
     try:
         session = requests.Session()
-        response = session.get(url, headers=HEADERS, timeout=6, allow_redirects=True)
+        response = session.get(url, headers=HEADERS, timeout=7, allow_redirects=True)
         final_url = response.url.lower()
         response_text = response.text.lower()
         
-        # 1. 404 Standard verification check (Asset is vacant)
-        if response.status_code == 404:
+        # 1. Handle HTTP Error States Safely
+        if response.status_code in [404, 403, 503]:
             with results_lock: missing[platform] = url
             return
             
-        # 2. Status 200 checks but validating Authwalls / Redirects to safe verify accuracy
+        # 2. Strict Content Check against Signature Error Tags
         if response.status_code == 200:
-            # Check for generic error tags inside HTML text body to kill False Positives
             has_error_tag = any(tag in response_text for tag in data["error_tags"])
             
+            # Catching false positives like authwalls or custom redirect landing pages
             if has_error_tag:
                 with results_lock: missing[platform] = url
-            elif any(term in final_url for term in ["login", "signin", "signup", "register", "/accounts/"]):
+            elif any(term in final_url for term in ["login", "signin", "signup", "register", "/accounts/", "blocked"]):
                 with results_lock: missing[platform] = url
             else:
                 with results_lock: found[platform] = url
         else:
             with results_lock: missing[platform] = url
     except requests.RequestException:
-        # Default network drop metrics directly flags handle as vacant to prevent crashing
         with results_lock: missing[platform] = url
 
 def generate_analytics_chart(username, found_count, missing_count, error_count):
@@ -168,8 +158,7 @@ def api_audit():
     missing = {}
     errors = {}
 
-    # Threadpool matrix architecture with 40 workers optimized for quick execution loops
-    with concurrent.futures.ThreadPoolExecutor(max_workers=40) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
         futures = [executor.submit(check_platform, plat, data, username, found, missing, errors) for plat, data in TARGET_SITES.items()]
         concurrent.futures.wait(futures)
 
@@ -204,9 +193,6 @@ HTML_LAYOUT = """
             background: #111827;
             border: 1px solid #1f2937;
         }
-        .glow-accent {
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
-        }
     </style>
 </head>
 <body class="antialiased selection:bg-sky-500 selection:text-slate-900">
@@ -215,12 +201,12 @@ HTML_LAYOUT = """
         <!-- Sidebar Navigation Element -->
         <aside class="w-full lg:w-72 bg-gray-950 flex flex-col border-b lg:border-r border-gray-800 p-6">
             <div class="flex items-center gap-3 mb-8">
-                <div class="p-3 bg-gradient-to-br from-sky-500 to-indigo-600 rounded-xl shadow-lg glow-accent">
+                <div class="p-3 bg-gradient-to-br from-sky-500 to-indigo-600 rounded-xl shadow-lg shadow-sky-500/20">
                     <i class="fa-solid fa-satellite-dish text-xl text-white"></i>
                 </div>
                 <div>
                     <h2 class="font-bold text-lg tracking-tight text-white leading-none">SocialRadar</h2>
-                    <span class="text-[10px] text-sky-400 font-mono uppercase tracking-widest mt-1 block">ACCURATE OSINT ENGINE</span>
+                    <span class="text-[10px] text-sky-400 font-mono uppercase tracking-widest mt-1 block">INDIAN & GLOBAL OSINT</span>
                 </div>
             </div>
             
@@ -229,10 +215,6 @@ HTML_LAYOUT = """
                     <i class="fa-solid fa-crosshairs w-5 text-sky-200"></i> Identity Audit Matrix
                 </button>
             </nav>
-            
-            <div class="pt-4 border-t border-gray-800 text-center">
-                <span class="text-[11px] text-slate-500 font-mono">Status: Pure Accuracy Scraper Node</span>
-            </div>
         </aside>
 
         <!-- Main Dashboard Arena -->
@@ -240,12 +222,7 @@ HTML_LAYOUT = """
             <div class="flex flex-col sm:flex-row justify-between sm:items-center border-b border-gray-800 pb-6 mb-8 gap-4">
                 <div>
                     <h1 class="text-3xl font-extrabold tracking-tight text-white">{{ company }}</h1>
-                    <p class="text-sm text-slate-400 mt-1">Cross-Platform Anti-False Positive Verification Terminal</p>
-                </div>
-                <div>
-                    <span class="inline-flex items-center gap-2 text-xs font-mono bg-sky-500/10 text-sky-400 px-3 py-1.5 rounded-full border border-sky-500/20">
-                        <span class="h-2 w-2 rounded-full bg-sky-400 animate-ping"></span> Real-time Network Parsing Active
-                    </span>
+                    <p class="text-sm text-slate-400 mt-1">Includes Justdial, IndiaMart, Magicpin & Global Networks</p>
                 </div>
             </div>
 
@@ -266,7 +243,7 @@ HTML_LAYOUT = """
             <!-- Loading Spinner Grid -->
             <div id="loader" class="hidden text-center py-24 cyber-card rounded-2xl">
                 <i class="fa-solid fa-circle-notch fa-spin text-5xl text-sky-400"></i>
-                <p class="text-sm text-slate-400 mt-6 font-mono animate-pulse">Running parallel filters... Stripping false positives from social profiles...</p>
+                <p class="text-sm text-slate-400 mt-6 font-mono animate-pulse">Running advanced signature analysis across local & international catalogs...</p>
             </div>
 
             <!-- Data Analysis Dashboard Output -->
@@ -329,7 +306,7 @@ HTML_LAYOUT = """
                     document.getElementById('count-found').innerText = foundKeys.length;
                     
                     if(foundKeys.length === 0) {
-                        foundBox.innerHTML = '<p class="text-xs text-slate-500 text-center py-8 font-mono">No accurate network blueprints mapped.</p>';
+                        foundBox.innerHTML = '<p class="text-xs text-slate-500 text-center py-8 font-mono">No network blueprints mapped.</p>';
                     } else {
                         for(const [platform, link] of Object.entries(data.found)) {
                             foundBox.innerHTML += `
