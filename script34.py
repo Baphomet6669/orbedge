@@ -10,13 +10,17 @@ from threading import Lock
 from flask import Flask, Blueprint, render_template_string, request, jsonify, session, redirect, url_for
 
 # =========================================================================
-# INITIALIZE FLASK CORE & BLUEPRINT (UPDATED TO SCRIPT35 TO MATCH APP.PY)
+# INITIALIZE FLASK CORE & BLUEPRINT
 # =========================================================================
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-script35_bp = Blueprint('script35', __name__)
+script34_bp = Blueprint('script34', __name__)
 
+# GitHub Integration Configs (Render Env Variables से उठाएगा)
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+GITHUB_REPO = os.environ.get('GITHUB_REPO', '')  # Format: "username/repo"
+GITHUB_BRANCH = os.environ.get('GITHUB_BRANCH', 'main')
 DATA_FILE = 'crm_data.json'
 
 AUTH_USER = 'admin'
@@ -25,7 +29,7 @@ AUTH_PASS = '5hsuusu78@#/@&hsb'
 db_lock = Lock()
 
 # =========================================================================
-# LOCAL STORAGE ENGINE
+# GITHUB STORAGE ENGINE (NO-MORE LOSS OF DATA ON SERVER RESTART)
 # =========================================================================
 def get_default_structure():
     return {
@@ -43,21 +47,73 @@ def get_default_structure():
     }
 
 def db_read():
-    """Local JSON Engine se data fetch karta hai"""
-    with db_lock:
+    """GitHub API से फाइल का डेटा फेच करता है"""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        # अगर टोकन सेट नहीं है, तो सेफ्टी के लिए लोकल फाइल पर फॉलबैक करेगा
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r') as f:
-                try: 
-                    return json.load(f)
-                except: 
-                    return get_default_structure()
+                try: return json.load(f)
+                except: return get_default_structure()
         return get_default_structure()
 
-def db_write(data):
-    """Local JSON Engine par data update (dump) karta hai"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}?ref={GITHUB_BRANCH}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    
     with db_lock:
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                content_b64 = res.json()['content']
+                content_str = base64.b64decode(content_b64).decode('utf-8')
+                return json.loads(content_str)
+            elif res.status_code == 404:
+                # अगर GitHub पर फाइल नहीं है, तो डिफॉल्ट स्ट्रक्चर अपलोड कर देगा
+                default_data = get_default_structure()
+                db_write_raw(default_data, None)
+                return default_data
+        except Exception as e:
+            print(f"GitHub Read Error: {e}")
+            
+    return get_default_structure()
+
+def db_write(data):
+    """GitHub API पर डेटा पुश (Commit) करता है"""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
+        return
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    
+    with db_lock:
+        try:
+            # फाइल का 'sha' टोकन लेने के लिए पहले GET रिक्वेस्ट मारनी पड़ती है
+            sha = None
+            res_get = requests.get(f"{url}?ref={GITHUB_BRANCH}", headers=headers, timeout=10)
+            if res_get.status_code == 200:
+                sha = res_get.json()['sha']
+            
+            db_write_raw(data, sha)
+        except Exception as e:
+            print(f"GitHub Write Setup Error: {e}")
+
+def db_write_raw(data, sha):
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DATA_FILE}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    
+    content_str = json.dumps(data, indent=4)
+    content_b64 = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+    
+    payload = {
+        "message": "CRM Database Auto-Sync Update",
+        "content": content_b64,
+        "branch": GITHUB_BRANCH
+    }
+    if sha:
+        payload["sha"] = sha
+        
+    requests.put(url, headers=headers, json=payload, timeout=10)
 
 # =========================================================================
 # MIDDLEWARE ENGINE
@@ -68,7 +124,7 @@ def is_authenticated():
 # =========================================================================
 # FLASK ROUTING GATEWAYS
 # =========================================================================
-@script35_bp.route('/', methods=['GET', 'POST'])
+@script34_bp.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
         username = request.form.get('username', '')
@@ -83,15 +139,15 @@ def index():
         return render_template_string(HTML_LAYOUT, is_authenticated=False, login_error=None)
     return render_template_string(HTML_LAYOUT, is_authenticated=True, login_error=None)
 
-@script35_bp.route('/action/logout', methods=['GET'])
+@script34_bp.route('/action/logout', methods=['GET'])
 def action_logout():
     session.pop('crm_logged_in', None)
-    return redirect(url_for('script35.index'))
+    return redirect(url_for('script34.index'))
 
 # =========================================================================
 # FLASK RESTFUL ASYNC API HOOKS
 # =========================================================================
-@script35_bp.route('/api/get_dashboard_stats', methods=['GET'])
+@script34_bp.route('/api/get_dashboard_stats', methods=['GET'])
 def get_dashboard_stats():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -130,7 +186,7 @@ def get_dashboard_stats():
             
     return jsonify(stats)
 
-@script35_bp.route('/api/save_lead', methods=['POST'])
+@script34_bp.route('/api/save_lead', methods=['POST'])
 def save_lead():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -158,7 +214,7 @@ def save_lead():
     db_write(db)
     return jsonify({'success': True, 'message': 'Lead saved successfully!'})
 
-@script35_bp.route('/api/delete_lead', methods=['POST'])
+@script34_bp.route('/api/delete_lead', methods=['POST'])
 def delete_lead():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -167,7 +223,7 @@ def delete_lead():
     db_write(db)
     return jsonify({'success': True})
 
-@script35_bp.route('/api/convert_to_customer', methods=['POST'])
+@script34_bp.route('/api/convert_to_customer', methods=['POST'])
 def convert_to_customer():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -194,17 +250,17 @@ def convert_to_customer():
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': 'Lead not found'})
 
-@script35_bp.route('/api/get_leads', methods=['GET'])
+@script34_bp.route('/api/get_leads', methods=['GET'])
 def get_leads():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('leads', []))
 
-@script35_bp.route('/api/get_customers', methods=['GET'])
+@script34_bp.route('/api/get_customers', methods=['GET'])
 def get_customers():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('customers', []))
 
-@script35_bp.route('/api/save_task', methods=['POST'])
+@script34_bp.route('/api/save_task', methods=['POST'])
 def save_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -218,12 +274,12 @@ def save_task():
     db_write(db)
     return jsonify({'success': True})
 
-@script35_bp.route('/api/get_tasks', methods=['GET'])
+@script34_bp.route('/api/get_tasks', methods=['GET'])
 def get_tasks():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('tasks', []))
 
-@script35_bp.route('/api/toggle_task', methods=['POST'])
+@script34_bp.route('/api/toggle_task', methods=['POST'])
 def toggle_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -235,7 +291,7 @@ def toggle_task():
     db_write(db)
     return jsonify({'success': True})
 
-@script35_bp.route('/api/delete_task', methods=['POST'])
+@script34_bp.route('/api/delete_task', methods=['POST'])
 def delete_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -244,12 +300,12 @@ def delete_task():
     db_write(db)
     return jsonify({'success': True})
 
-@script35_bp.route('/api/get_automation_queue', methods=['GET'])
+@script34_bp.route('/api/get_automation_queue', methods=['GET'])
 def get_automation_queue():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('automation_queue', []))
 
-@script35_bp.route('/api/clear_automation_queue', methods=['GET', 'POST'])
+@script34_bp.route('/api/clear_automation_queue', methods=['GET', 'POST'])
 def clear_automation_queue():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -257,7 +313,7 @@ def clear_automation_queue():
     db_write(db)
     return jsonify({'success': True})
 
-@script35_bp.route('/api/process_lead_automation', methods=['POST'])
+@script34_bp.route('/api/process_lead_automation', methods=['POST'])
 def process_lead_automation():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -286,9 +342,9 @@ def process_lead_automation():
     return jsonify({'success': True, 'message': f'Successfully deployed {imported_count} leads to broadcast engine.'})
 
 # =========================================================================
-# INTERLINKED CSV WORKFLOW UPLOADER
+# INTERLINKED CSV WORKFLOW UPLOADER (DIRECT GITHUB INGESTION)
 # =========================================================================
-@script35_bp.route('/api/upload_automation_sheet', methods=['POST'])
+@script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     if 'automation_file' not in request.files:
@@ -363,7 +419,7 @@ def upload_automation_sheet():
         
     return jsonify({'success': False, 'message': 'Invalid file layout format.'})
 
-app.register_blueprint(script35_bp, url_for_security='/')
+app.register_blueprint(script34_bp, url_for_security='/')
 
 # HTML UI Layout Script (Excel, PDF Export & Tracking Markers Added Seamlessly)
 HTML_LAYOUT = """
@@ -377,7 +433,7 @@ HTML_LAYOUT = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Heavy-Duty Client-Side Export Dependencies -->
+    <!-- Heavy-Duty Client-Side Export Dependencies (Bypasses Server Load) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
@@ -493,7 +549,7 @@ HTML_LAYOUT = """
                         <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
                     </div>
                     
-                    <!-- Document Exports -->
+                    <!-- Advanced Document Exports -->
                     <div class="flex flex-wrap items-center gap-3">
                         <button onclick="exportFullCRMDataToExcel()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md">
                             <i class="fa-solid fa-file-excel"></i> Export XLSX Reports
@@ -506,7 +562,7 @@ HTML_LAYOUT = """
                               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                               <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                             </span>
-                            Local Sync Engine Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
+                            GitHub Sync Server Active <span id="conversion-win-rate" class="ml-2 bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[10px]">Win Rate: 0%</span>
                         </div>
                     </div>
                 </div>
@@ -776,7 +832,6 @@ HTML_LAYOUT = """
         let pipelineChartInstance = null;
         let reportPieChartInstance = null;
         let reportDoughnutChartInstance = null;
-        let currentLeadStatusCounts = { 'New': 0, 'Contacted': 0, 'Proposal': 0, 'Lost': 0 };
 
         function getBlueprintPrefix() {
             let path = window.location.pathname;
@@ -884,8 +939,6 @@ HTML_LAYOUT = """
             if(document.getElementById('conversion-win-rate')) {
                 document.getElementById('conversion-win-rate').innerText = `Win Rate: ${stats.win_rate}%`;
             }
-
-            currentLeadStatusCounts = stats.lead_status_counts || { 'New': 0, 'Contacted': 0, 'Proposal': 0, 'Lost': 0 };
 
             if (!isSilent) {
                 let actList = document.getElementById('recent-activity-list');
@@ -1107,6 +1160,7 @@ HTML_LAYOUT = """
                 let waLink = `https://api.whatsapp.com/send?phone=${item.phone}&text=${encodedText}`;
                 let mailLink = `mailto:${item.email}?subject=Broadcast&body=${encodedText}`;
 
+                // Sent Tracking Pin Configuration
                 let dispatchInfo = dispatchPins[item.id];
                 let pinHtml = '';
                 if (dispatchInfo) {
@@ -1166,6 +1220,7 @@ HTML_LAYOUT = """
             if(!confirm("Flush records?")) return;
             let res = await fetchAPI('clear_automation_queue');
             if (res && res.success) { 
+                // LocalStorage pins register ko bhi clear kar dete hain safety ke liye
                 localStorage.removeItem('crm_dispatch_pins');
                 popToast("Queue reset."); 
                 loadAutomationEngine(); 
@@ -1237,7 +1292,7 @@ HTML_LAYOUT = """
         }
 
         // =========================================================================
-        // MULTI-SHEET COMPLETE EXCEL EXPORT ENGINE (INCLUDES CHARTS & METRICS DATA)
+        // HIGH PERFORMANCE CLIENT EXPORT ENGINES (XLSX & PDF GENERATION)
         // =========================================================================
         async function exportFullCRMDataToExcel() {
             try {
@@ -1248,58 +1303,42 @@ HTML_LAYOUT = """
 
                 let wb = XLSX.utils.book_new();
 
-                // Sheet 1: Dashboard Analytics & Charts Representation
-                let dashboardSummary = [
-                    ["ORBITEDGE SYSTEM GENERAL OPERATIONAL SUMMARY", ""],
-                    ["Metric Parameter Component", "Current Registered Value"],
+                // Sheet 1: General Stats & Metric Summary Overview
+                let summaryData = [
+                    ["KPI / Metrics Parameter", "Registry Values"],
                     ["Total Leads Captured", stats.total_leads || leads.length],
                     ["Active Customers Converted", stats.total_customers || customers.length],
-                    ["Uncompleted Pipeline Objectives", stats.pending_tasks || 0],
+                    ["Uncompleted Objectives", stats.pending_tasks || 0],
                     ["Pipeline Valuation Pool", stats.total_pipeline_value || 0],
-                    ["Average Active Deal Size Value", stats.average_deal_size || 0],
+                    ["Average Active Deal Size", stats.average_deal_size || 0],
                     ["Aggregate Gross Revenue Pool", stats.total_revenue_pool || 0],
-                    ["Conversion Velocity Rate", `${stats.win_rate || 0}%`],
-                    ["", ""],
-                    ["PIPELINE BREAKDOWN (CHART COUNTS)", ""],
-                    ["Lead Status Funnel Stage", "Total Counter Logged"],
-                    ["New Leads Stage", currentLeadStatusCounts['New'] || 0],
-                    ["Contacted Interactions", currentLeadStatusCounts['Contacted'] || 0],
-                    ["Proposal Pitch Matrix", currentLeadStatusCounts['Proposal'] || 0],
-                    ["Lost Leads Counter", currentLeadStatusCounts['Lost'] || 0]
+                    ["Conversion Velocity Rate (%)", `${stats.win_rate || 0}%`]
                 ];
-                let wsSummary = XLSX.utils.aoa_to_sheet(dashboardSummary);
-                XLSX.utils.book_append_sheet(wb, wsSummary, "Dashboard Analytics");
+                let wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+                XLSX.utils.book_append_sheet(wb, wsSummary, "Dashboard Overview");
 
-                // Sheet 2: Complete Leads Datatable
-                let leadsData = [["Database ID", "Client Name", "Corporate Company Brand", "Email Address", "Mobile Number Contact", "Funnel Status Position", "Estimated Capital Deal Value", "Date Created Log"]];
+                // Sheet 2: Leads Registry Datatable 
+                let leadsData = [["Database ID", "Client Name", "Corporate Company", "Email Link", "Mobile Contact", "Funnel Status", "Est Value", "Date Created"]];
                 leads.forEach(l => {
                     leadsData.push([l.id, l.name, l.company || "N/A", l.email, l.phone, l.status, l.value, l.date]);
                 });
                 let wsLeads = XLSX.utils.aoa_to_sheet(leadsData);
-                XLSX.utils.book_append_sheet(wb, wsLeads, "Leads Pipeline");
+                XLSX.utils.book_append_sheet(wb, wsLeads, "Leads Matrix");
 
-                // Sheet 3: Converted Customer Database
-                let customerData = [["Database ID", "Customer Entity Name", "Corporate Company Brand", "Email ID Address", "Mobile Contact Connection", "Revenue Pool Generated", "Retention Account Date"]];
+                // Sheet 3: Converted Customer Database Records
+                let customerData = [["Database ID", "Customer Entity Name", "Corporate Company", "Email ID", "Mobile Contact", "Calculated Revenue Generated", "Retention Date"]];
                 customers.forEach(c => {
                     customerData.push([c.id, c.name, c.company || "N/A", c.email, c.phone, c.revenue, c.joined_date]);
                 });
                 let wsCustomers = XLSX.utils.aoa_to_sheet(customerData);
                 XLSX.utils.book_append_sheet(wb, wsCustomers, "Active Customers");
 
-                // Sheet 4: Tasks Matrix Operational Roadmap
-                let tasksData = [["Task ID Reference", "Objective Strategic Title", "Target Calendar Deadline", "Priority Weight Status", "Operational State"]];
-                tasks.forEach(t => {
-                    tasksData.push([t.id, t.title, t.due_date, t.priority, t.status]);
-                });
-                let wsTasks = XLSX.utils.aoa_to_sheet(tasksData);
-                XLSX.utils.book_append_sheet(wb, wsTasks, "Operational Roadmap");
-
-                // Save dynamic binary workbook file sheet stack
-                XLSX.writeFile(wb, `OrbitEdge_Complete_CRM_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
-                popToast("Excel Multi-Sheet compiled perfectly!");
+                // Save Workbook Output Link
+                XLSX.writeFile(wb, `CRM_System_Export_Metrics_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                popToast("Excel Database Compiled Successfully!");
             } catch (err) {
                 console.error("Critical Excel Packaging Exception:", err);
-                alert("Failed to export complete Excel report data layers.");
+                alert("Failed to export Excel report sheets.");
             }
         }
 
@@ -1309,6 +1348,7 @@ HTML_LAYOUT = """
             
             popToast("Preparing High-Res Executive PDF document structure...");
 
+            // Optimal configuration logic keeping canvas and graphs completely readable
             let pdfOptions = {
                 margin: [10, 10, 10, 10],
                 filename: `OrbitEdge_CRM_Executive_Summary_${new Date().toISOString().slice(0,10)}.pdf`,
