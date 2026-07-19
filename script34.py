@@ -10,12 +10,12 @@ from threading import Lock
 from flask import Flask, Blueprint, render_template_string, request, jsonify, session, redirect, url_for
 
 # =========================================================================
-# INITIALIZE FLASK CORE & BLUEPRINT
+# INITIALIZE FLASK CORE & BLUEPRINT (UPDATED TO SCRIPT35 TO MATCH APP.PY)
 # =========================================================================
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-script34_bp = Blueprint('script34', __name__)
+script35_bp = Blueprint('script35', __name__)
 
 DATA_FILE = 'crm_data.json'
 
@@ -68,7 +68,7 @@ def is_authenticated():
 # =========================================================================
 # FLASK ROUTING GATEWAYS
 # =========================================================================
-@script34_bp.route('/', methods=['GET', 'POST'])
+@script35_bp.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
         username = request.form.get('username', '')
@@ -83,15 +83,15 @@ def index():
         return render_template_string(HTML_LAYOUT, is_authenticated=False, login_error=None)
     return render_template_string(HTML_LAYOUT, is_authenticated=True, login_error=None)
 
-@script34_bp.route('/action/logout', methods=['GET'])
+@script35_bp.route('/action/logout', methods=['GET'])
 def action_logout():
     session.pop('crm_logged_in', None)
-    return redirect(url_for('script34.index'))
+    return redirect(url_for('script35.index'))
 
 # =========================================================================
 # FLASK RESTFUL ASYNC API HOOKS
 # =========================================================================
-@script34_bp.route('/api/get_dashboard_stats', methods=['GET'])
+@script35_bp.route('/api/get_dashboard_stats', methods=['GET'])
 def get_dashboard_stats():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -130,7 +130,7 @@ def get_dashboard_stats():
             
     return jsonify(stats)
 
-@script34_bp.route('/api/save_lead', methods=['POST'])
+@script35_bp.route('/api/save_lead', methods=['POST'])
 def save_lead():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -158,7 +158,7 @@ def save_lead():
     db_write(db)
     return jsonify({'success': True, 'message': 'Lead saved successfully!'})
 
-@script34_bp.route('/api/delete_lead', methods=['POST'])
+@script35_bp.route('/api/delete_lead', methods=['POST'])
 def delete_lead():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -167,7 +167,7 @@ def delete_lead():
     db_write(db)
     return jsonify({'success': True})
 
-@script34_bp.route('/api/convert_to_customer', methods=['POST'])
+@script35_bp.route('/api/convert_to_customer', methods=['POST'])
 def convert_to_customer():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -194,17 +194,17 @@ def convert_to_customer():
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': 'Lead not found'})
 
-@script34_bp.route('/api/get_leads', methods=['GET'])
+@script35_bp.route('/api/get_leads', methods=['GET'])
 def get_leads():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('leads', []))
 
-@script34_bp.route('/api/get_customers', methods=['GET'])
+@script35_bp.route('/api/get_customers', methods=['GET'])
 def get_customers():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('customers', []))
 
-@script34_bp.route('/api/save_task', methods=['POST'])
+@script35_bp.route('/api/save_task', methods=['POST'])
 def save_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -218,12 +218,12 @@ def save_task():
     db_write(db)
     return jsonify({'success': True})
 
-@script34_bp.route('/api/get_tasks', methods=['GET'])
+@script35_bp.route('/api/get_tasks', methods=['GET'])
 def get_tasks():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('tasks', []))
 
-@script34_bp.route('/api/toggle_task', methods=['POST'])
+@script35_bp.route('/api/toggle_task', methods=['POST'])
 def toggle_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -235,7 +235,7 @@ def toggle_task():
     db_write(db)
     return jsonify({'success': True})
 
-@script34_bp.route('/api/delete_task', methods=['POST'])
+@script35_bp.route('/api/delete_task', methods=['POST'])
 def delete_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -244,12 +244,12 @@ def delete_task():
     db_write(db)
     return jsonify({'success': True})
 
-@script34_bp.route('/api/get_automation_queue', methods=['GET'])
+@script35_bp.route('/api/get_automation_queue', methods=['GET'])
 def get_automation_queue():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('automation_queue', []))
 
-@script34_bp.route('/api/clear_automation_queue', methods=['GET', 'POST'])
+@script35_bp.route('/api/clear_automation_queue', methods=['GET', 'POST'])
 def clear_automation_queue():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -257,7 +257,7 @@ def clear_automation_queue():
     db_write(db)
     return jsonify({'success': True})
 
-@script34_bp.route('/api/process_lead_automation', methods=['POST'])
+@script35_bp.route('/api/process_lead_automation', methods=['POST'])
 def process_lead_automation():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     db = db_read()
@@ -288,7 +288,7 @@ def process_lead_automation():
 # =========================================================================
 # INTERLINKED CSV WORKFLOW UPLOADER
 # =========================================================================
-@script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
+@script35_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     if 'automation_file' not in request.files:
@@ -363,7 +363,7 @@ def upload_automation_sheet():
         
     return jsonify({'success': False, 'message': 'Invalid file layout format.'})
 
-app.register_blueprint(script34_bp, url_for_security='/')
+app.register_blueprint(script35_bp, url_for_security='/')
 
 # HTML UI Layout Script (Excel, PDF Export & Tracking Markers Added Seamlessly)
 HTML_LAYOUT = """
