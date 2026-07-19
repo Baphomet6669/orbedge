@@ -13,6 +13,7 @@ from flask import Flask, Blueprint, render_template_string, request, jsonify, se
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
+# FIX 1: Blueprint creation initialization block
 script34_bp = Blueprint('script34', __name__)
 
 DATA_FILE = 'crm_data.json'
@@ -49,7 +50,6 @@ def db_read():
             with open(DATA_FILE, 'r') as f:
                 try: 
                     data = json.load(f)
-                    # Core structure checks to maintain backward compatibility
                     if 'invoices' not in data: data['invoices'] = []
                     if 'quotations' not in data: data['quotations'] = []
                     return data
@@ -114,7 +114,6 @@ def get_dashboard_stats():
     total_pipeline_entities = leads_count + len(customers)
     win_rate = (len(customers) / total_pipeline_entities * 100) if total_pipeline_entities > 0 else 0
 
-    # Sales Forecast Logic (Weighted probability model calculation)
     forecast_value = 0
     for l in leads:
         status = l.get('status', 'New')
@@ -220,9 +219,6 @@ def get_customers():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
     return jsonify(db_read().get('customers', []))
 
-# =========================================================================
-# ADVANCED REMINDERS & TASK MANAGEMENT HOOKS
-# =========================================================================
 @script34_bp.route('/api/save_task', methods=['POST'])
 def save_task():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
@@ -264,9 +260,6 @@ def delete_task():
     db_write(db)
     return jsonify({'success': True})
 
-# =========================================================================
-# FINANCIALS INVOICING & QUOTATION MANAGEMENT HOOKS
-# =========================================================================
 @script34_bp.route('/api/get_financials', methods=['GET'])
 def get_financials():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
@@ -357,9 +350,6 @@ def process_lead_automation():
     db_write(db)
     return jsonify({'success': True, 'message': f'Successfully deployed {imported_count} leads to broadcast engine.'})
 
-# =========================================================================
-# INTERLINKED CSV WORKFLOW UPLOADER
-# =========================================================================
 @script34_bp.route('/api/upload_automation_sheet', methods=['POST'])
 def upload_automation_sheet():
     if not is_authenticated(): return jsonify({'error': 'Unauthorized'}), 401
@@ -435,7 +425,8 @@ def upload_automation_sheet():
         
     return jsonify({'success': False, 'message': 'Invalid file layout format.'})
 
-app.register_blueprint(script34_bp, url_for_security='/')
+# FIX 2: Correct blueprint register parameter (url_prefix instead of url_for_security)
+app.register_blueprint(script34_bp, url_prefix='/')
 
 # HTML UI Layout Injecting dynamic layouts & Financial stacks
 HTML_LAYOUT = """
@@ -449,7 +440,6 @@ HTML_LAYOUT = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Heavy-Duty Client-Side Export Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
@@ -514,7 +504,6 @@ HTML_LAYOUT = """
         </div>
     </div>
 {% else %}
-    <!-- MOBILE TOP HEADER (BAR) -->
     <div class="md:hidden bg-gray-950 text-white flex items-center justify-between p-4 border-b border-gray-900 sticky top-0 z-50">
         <div class="flex items-center gap-2">
             <div class="p-2 bg-indigo-600 rounded-lg"><i class="fa-solid fa-bolt text-sm text-white"></i></div>
@@ -526,7 +515,6 @@ HTML_LAYOUT = """
     </div>
 
     <div class="min-h-screen flex flex-col md:flex-row relative">
-        <!-- SIDEBAR -->
         <aside id="sidebar-container" class="hidden md:flex fixed md:sticky top-[53px] md:top-0 left-0 bottom-0 w-full md:w-64 bg-gray-950 text-white flex-col border-r border-gray-900 z-40 transition-all duration-300 overflow-y-auto">
             <div class="p-6 border-b border-gray-900 hidden md:flex items-center gap-3">
                 <div class="p-2.5 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-xl"><i class="fa-solid fa-bolt text-lg text-white"></i></div>
@@ -552,7 +540,6 @@ HTML_LAYOUT = """
             </div>
         </aside>
 
-        <!-- MAIN CONTAINER -->
         <main class="flex-1 p-4 md:p-8 overflow-y-auto max-h-screen w-full" id="exportable-main-area">
             <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 bg-gray-900 border border-emerald-500/30 text-white px-5 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 transition-all duration-300">
                 <i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i> <span id="toast-text" class="text-sm font-semibold"></span>
@@ -566,7 +553,6 @@ HTML_LAYOUT = """
                         <p class="text-sm text-custom-muted">Live operational analytical monitoring ecosystem.</p>
                     </div>
                     
-                    <!-- Document Exports -->
                     <div class="flex flex-wrap items-center gap-3">
                         <button onclick="exportFullCRMDataToExcel()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer transition shadow-md">
                             <i class="fa-solid fa-file-excel"></i> Export XLSX Reports
@@ -613,7 +599,6 @@ HTML_LAYOUT = """
                         <div class="p-2.5 bg-emerald-500/20 text-emerald-600 rounded-xl"><i class="fa-solid fa-gavel text-lg"></i></div>
                         <div><p class="text-[10px] font-bold uppercase text-custom-muted">Revenue</p><h3 id="stat-revenue-pool" class="text-xl font-extrabold text-emerald-500">₹0</h3></div>
                     </div>
-                    <!-- Sales Forecast Card -->
                     <div class="panel-card p-4 rounded-2xl border bg-gradient-to-br from-indigo-900/20 to-violet-900/20 flex items-center gap-3">
                         <div class="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-xl"><i class="fa-solid fa-crystal-ball text-lg"></i></div>
                         <div><p class="text-[10px] font-bold uppercase text-indigo-400">Forecast</p><h3 id="stat-forecast-value" class="text-base font-extrabold text-indigo-300">₹0</h3></div>
@@ -747,7 +732,7 @@ HTML_LAYOUT = """
                 </div>
             </div>
 
-            <!-- TASKS, CALLS & MEETINGS REMINDERS MATRIX -->
+            <!-- TASKS TAB -->
             <div id="tab-tasks" class="tab-content hidden space-y-6">
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div class="panel-card p-6 rounded-2xl border h-fit shadow-sm">
@@ -793,7 +778,7 @@ HTML_LAYOUT = """
                 </div>
             </div>
 
-            <!-- SALES AUTOMATION INVOICING & QUOTATIONS LAYER -->
+            <!-- FINANCIAL TAB -->
             <div id="tab-sales_finance" class="tab-content hidden space-y-6">
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div class="panel-card p-6 rounded-2xl border h-fit shadow-sm">
@@ -1324,9 +1309,6 @@ HTML_LAYOUT = """
             }
         }
 
-        // =========================================================================
-        // TASKS MATRIX & REMINDERS HANDLERS
-        // =========================================================================
         async function loadTasksEngine() {
             rawTasks = await fetchAPI('get_tasks') || [];
             let container = document.getElementById('tasks-list'); container.innerHTML = '';
@@ -1395,9 +1377,6 @@ HTML_LAYOUT = """
             popToast("Calendar engine file package exported successfully!");
         }
 
-        # =========================================================================
-        # FINANCIAL AUTOMATION LAYER PLATFORM LOGIC
-        # =========================================================================
         async function loadSalesFinanceEngine() {
             let res = await fetchAPI('get_financials');
             if(!res) return;
@@ -1590,3 +1569,4 @@ HTML_LAYOUT = """
 # =========================================================================
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
