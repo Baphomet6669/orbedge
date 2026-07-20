@@ -1,23 +1,19 @@
 import os
 from flask import Blueprint, render_template_string
 
-# =========================================================================
-# INITIALIZE BLUEPRINT FOR SCRIPT 44 (DIRECT PDF CANVAS STUDIO)
-# =========================================================================
 script44_bp = Blueprint('script44', __name__)
 
-# Inline HTML Layout (Client-side Canvas Studio with PDF.js + Fabric.js + PDF-Lib)
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OrbitEdge Media | Direct PDF Studio</title>
+    <title>OrbitEdge Media | Native PDF Editor</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- PDF Engine Libraries (Browser Native) -->
+    <!-- PDF Engine Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
@@ -25,7 +21,6 @@ HTML_LAYOUT = """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=300;400;500;600;700;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #090d16; color: #f1f5f9; }
-        .canvas-container { margin: 0 auto !important; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border-radius: 8px; overflow: hidden; }
     </style>
 </head>
 <body class="antialiased selection:bg-indigo-600 selection:text-white min-h-screen flex flex-col">
@@ -34,15 +29,15 @@ HTML_LAYOUT = """
     <header class="border-b border-gray-800 bg-gray-950/70 backdrop-blur px-6 py-4 sticky top-0 z-50 flex items-center justify-between">
         <div class="flex items-center gap-3">
             <div class="p-2.5 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-xl shadow-lg shadow-indigo-500/20">
-                <i class="fa-solid fa-file-pdf text-lg text-white"></i>
+                <i class="fa-solid fa-file-signature text-lg text-white"></i>
             </div>
             <div>
                 <h1 class="text-base font-bold tracking-tight text-white leading-none">Shivam Singh Dashboard</h1>
-                <span class="text-[10px] uppercase text-gray-400 tracking-widest mt-1 block">Script 44 // Direct PDF Studio</span>
+                <span class="text-[10px] uppercase text-gray-400 tracking-widest mt-1 block">Script 44 // Native Text Overwrite Engine</span>
             </div>
         </div>
-        <div class="flex items-center gap-2 text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-xl text-indigo-400">
-            <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Canvas Engine Ready
+        <div class="flex items-center gap-2 text-xs font-semibold bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-1.5 rounded-xl text-emerald-400">
+            <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Full Text Overwrite Active
         </div>
     </header>
 
@@ -50,16 +45,14 @@ HTML_LAYOUT = """
     <div class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex flex-wrap items-center gap-3 justify-between">
         <div class="flex flex-wrap items-center gap-3 text-xs">
             
-            <!-- PDF LOAD -->
             <label class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-2 shadow-md">
                 <i class="fa-solid fa-folder-open"></i> Load PDF
                 <input type="file" id="pdfInput" accept="application/pdf" class="hidden">
             </label>
 
-            <!-- EDIT TOOLS -->
             <div class="flex items-center gap-2 bg-gray-950 border border-gray-800 p-1.5 rounded-xl">
                 <button onclick="addText()" class="bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5">
-                    <i class="fa-solid fa-font text-indigo-400"></i> Add Text
+                    <i class="fa-solid fa-font text-indigo-400"></i> Add Extra Text
                 </button>
                 
                 <label class="bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5">
@@ -68,24 +61,23 @@ HTML_LAYOUT = """
                 </label>
 
                 <button onclick="deleteSelected()" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5">
-                    <i class="fa-solid fa-trash"></i> Delete
+                    <i class="fa-solid fa-eraser"></i> Erase/Delete
                 </button>
             </div>
         </div>
 
-        <!-- EXPORT ACTION -->
         <button onclick="exportEditedPDF()" class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-5 py-2 rounded-xl transition cursor-pointer text-xs shadow-lg shadow-emerald-500/10 flex items-center gap-2">
-            <i class="fa-solid fa-download"></i> Save & Export PDF
+            <i class="fa-solid fa-download"></i> Save Final PDF
         </button>
     </div>
 
     <!-- MAIN WORKSPACE -->
     <main class="flex-1 bg-gray-950 p-6 overflow-auto flex flex-col items-center justify-center relative">
         <div id="status-bar" class="mb-4 text-xs font-semibold text-gray-400 flex items-center gap-2">
-            <i class="fa-solid fa-circle-info text-indigo-400"></i> Select or upload a PDF file to render layout...
+            <i class="fa-solid fa-circle-info text-indigo-400"></i> PDF upload karo, aur kisi bhi puraane text par double-click karke use badal do!
         </div>
 
-        <div id="canvas-wrapper" class="border border-gray-800 rounded-xl overflow-hidden bg-white">
+        <div id="canvas-wrapper" class="border border-gray-800 rounded-xl overflow-hidden bg-white shadow-2xl">
             <canvas id="pdfCanvas"></canvas>
         </div>
     </main>
@@ -103,7 +95,7 @@ HTML_LAYOUT = """
             const file = e.target.files[0];
             if (!file) return;
 
-            statusEl.innerHTML = `<span class="text-indigo-400"><i class="fa-solid fa-spinner animate-spin"></i> Parsing PDF stream...</span>`;
+            statusEl.innerHTML = `<span class="text-indigo-400"><i class="fa-solid fa-spinner animate-spin"></i> Parsing original text coordinates...</span>`;
             pdfBytes = await file.arrayBuffer();
             currentPdfDoc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
             renderPage(1);
@@ -124,12 +116,12 @@ HTML_LAYOUT = """
             fabricCanvas.setWidth(viewport.width);
             fabricCanvas.setHeight(viewport.height);
 
-            // PDF Render as background
+            // Background Render
             fabric.Image.fromURL(tempCanvas.toDataURL(), (img) => {
                 fabricCanvas.setBackgroundImage(img, fabricCanvas.renderAll.bind(fabricCanvas));
             });
 
-            // Extract native text strings directly into editable Fabric Text blocks
+            // Original Text Coordinate Engine with Erase Box Masking
             const textContent = await page.getTextContent();
             textContent.items.forEach(item => {
                 const tx = pdfjsLib.Util.transformPath(viewport.transform, item.transform);
@@ -137,23 +129,28 @@ HTML_LAYOUT = """
                 const y = viewport.height - tx[5];
 
                 if (item.str && item.str.trim().length > 0) {
+                    const fontSize = Math.max(12, (item.height || 12) * 1.1);
+
+                    // Create Text Object that auto-masks background on edit
                     const textObj = new fabric.IText(item.str, {
                         left: x,
-                        top: y - (item.height || 12),
-                        fontSize: Math.max(12, (item.height || 12) * 1.1),
+                        top: y - fontSize,
+                        fontSize: fontSize,
                         fill: '#000000',
                         fontFamily: 'Arial',
+                        textBackgroundColor: '#ffffff', // Whiteout background logic
                         editable: true
                     });
+
                     fabricCanvas.add(textObj);
                 }
             });
 
-            statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> PDF Loaded successfully! Double click any text to edit or drag new elements.</span>`;
+            statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> PDF Ready! Click any text to overwrite it cleanly.</span>`;
         }
 
         function addText() {
-            const text = new fabric.IText('Double Click To Edit', {
+            const text = new fabric.IText('New Text', {
                 left: 100,
                 top: 100,
                 fontSize: 18,
@@ -188,12 +185,9 @@ HTML_LAYOUT = """
         }
 
         async function exportEditedPDF() {
-            if (!pdfBytes) {
-                alert("Pehle Koi PDF File upload karo!");
-                return;
-            }
+            if (!pdfBytes) return alert("Pehle PDF Load karo!");
 
-            statusEl.innerHTML = `<span class="text-indigo-400"><i class="fa-solid fa-spinner animate-spin"></i> Generating PDF document stream...</span>`;
+            statusEl.innerHTML = `<span class="text-indigo-400"><i class="fa-solid fa-spinner animate-spin"></i> Exporting PDF...</span>`;
             const dataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 2 });
             
             const pdfDoc = await PDFLib.PDFDocument.create();
@@ -211,20 +205,16 @@ HTML_LAYOUT = """
             const blob = new Blob([savedBytes], { type: "application/pdf" });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = "edited_output.pdf";
+            link.download = "edited_pdf.pdf";
             link.click();
             
-            statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> Export Complete! Download initiated.</span>`;
+            statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> Export Complete!</span>`;
         }
     </script>
 </body>
 </html>
 """
 
-# =========================================================================
-# FLASK ROUTING GATEWAYS
-# =========================================================================
 @script44_bp.route('/', methods=['GET'])
 def index():
     return render_template_string(HTML_LAYOUT)
-
