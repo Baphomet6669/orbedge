@@ -18,9 +18,8 @@ app.secret_key = os.urandom(24)
 script43_bp = Blueprint('script43', __name__)
 db_lock = Lock()
 
-CONFIG_FILE = 'email_config.json'
+CONFIG_FILE = '/tmp/email_config.json' if os.path.exists('/tmp') else 'email_config.json'
 
-# Dispatch Global Engine State Parameters
 broadcast_state = {
     'is_running': False,
     'total_records': 0,
@@ -46,8 +45,11 @@ def load_config():
     }
 
 def save_config(config_data):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config_data, f, indent=4)
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config_data, f, indent=4)
+    except Exception:
+        pass
 
 # =========================================================================
 # CORE EMAIL TRANSMISSION WORKFLOW ENGINE
@@ -56,13 +58,19 @@ def async_email_executor(targets, subject, template_body, config):
     global broadcast_state
     
     try:
-        if config.get('use_tls', True):
-            server = smtplib.SMTP(config['smtp_server'], int(config['smtp_port']), timeout=15)
+        use_tls = config.get('use_tls', True)
+        port = int(config.get('smtp_port', 587))
+        server_host = config.get('smtp_server', 'smtp.gmail.com')
+
+        if use_tls:
+            server = smtplib.SMTP(server_host, port, timeout=15)
             server.starttls()
         else:
-            server = smtplib.SMTP_SSL(config['smtp_server'], int(config['smtp_port']), timeout=15)
+            server = smtplib.SMTP_SSL(server_host, port, timeout=15)
             
-        server.login(config['smtp_user'], config['smtp_pass'])
+        clean_pass = config['smtp_pass'].replace(' ', '').strip()
+        server.login(config['smtp_user'].strip(), clean_pass)
+        
         with db_lock:
             broadcast_state['logs'].insert(0, f"🔑 SMTP AUTHENTICATION SUCCESS: Connected as {config['smtp_user']}")
     except Exception as e:
@@ -83,42 +91,27 @@ def async_email_executor(targets, subject, template_body, config):
             with db_lock:
                 broadcast_state['processed_count'] += 1
                 broadcast_state['failed_count'] += 1
-                broadcast_state['logs'].insert(0, f"⚠️ SKIPPED: Invalid email format for '{name}' ({email})")
+                broadcast_state['logs'].insert(0, f"⚠️ SKIPPED: Invalid email format ({email})")
             continue
 
         try:
             custom_body = template_body.replace('[Name]', name).replace('[Company]', company)
             
-            professional_html_shell = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <style>
-                    body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 0; }}
-                    .wrapper {{ max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #eef2f5; }}
-                    .header {{ background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 35px 40px; text-align: center; }}
-                    .header h1 {{ color: #ffffff; font-size: 24px; font-weight: 700; margin: 0; }}
-                    .content {{ padding: 40px; color: #334155; font-size: 16px; line-height: 1.6; }}
-                    .footer {{ background-color: #f8fafc; padding: 25px 40px; text-align: center; border-top: 1px solid #f1f5f9; }}
-                    .footer p {{ color: #94a3b8; font-size: 12px; margin: 0; }}
-                </style>
-            </head>
-            <body>
-                <div class="wrapper">
-                    <div class="header">
-                        <h1>Corporate Communication Portal</h1>
-                    </div>
-                    <div class="content">
-                        {custom_body}
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 Executive Enterprise Communications. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """
+            professional_html_shell = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 20px;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; padding: 30px; border: 1px solid #eef2f5;">
+        <h2 style="color: #4f46e5; margin-top: 0;">Corporate Communication</h2>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <div style="color: #334155; font-size: 15px; line-height: 1.6;">
+            {custom_body}
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #94a3b8; font-size: 11px; text-align: center;">© 2026 Executive Enterprise</p>
+    </div>
+</body>
+</html>"""
             
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
@@ -217,15 +210,18 @@ def start_broadcast():
         targets = []
         
     if manual_emails_raw:
-        raw_lines = manual_emails_raw.replace(',', '\n').split('\n')
-        for line in raw_lines:
-            entry = line.strip()
-            if "@" in entry:
-                parts = [p.strip() for p in entry.split(',')]
-                e = parts[0]
-                n = parts[1] if len(parts) > 1 else "Valued Client"
-                c = parts[2] if len(parts) > 2 else "Enterprise Corp"
-                targets.append({"email": e, "name": n, "company": c})
+        lines = manual_emails_raw.replace('\r', '').split('\n')
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+            
+            # Split comma separated entries
+            sub_entries = line_clean.split(',')
+            for entry in sub_entries:
+                item = entry.strip()
+                if "@" in item:
+                    targets.append({"email": item, "name": "Valued Client", "company": "Enterprise Corp"})
         
     if not targets:
         return jsonify({"success": False, "message": "No valid target email addresses provided."})
@@ -345,7 +341,7 @@ HTML_LAYOUT = """
                     <i class="fa-solid fa-keyboard"></i> Manual Email Input
                 </h3>
                 <p class="text-[11px] text-gray-400 leading-relaxed">Type emails (one per line or comma-separated):</p>
-                <textarea id="manual_emails" rows="4" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 resize-none" placeholder="user1@domain.com&#10;user2@domain.com, John, Acme Corp"></textarea>
+                <textarea id="manual_emails" rows="4" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 resize-none" placeholder="user1@domain.com&#10;user2@domain.com"></textarea>
             </div>
 
             <!-- INGEST TARGET CSV -->
@@ -454,7 +450,7 @@ HTML_LAYOUT = """
 
         function updateLivePreview() {
             let bodyContent = document.getElementById('email_body').value || "<p style='color:#94a3b8;'>Type your body text above...</p>";
-            let processedPreview = bodyContent.replace('[Name]', 'Rahul Sharma').replace('[Company]', 'Acme Corp');
+            let processedPreview = bodyContent.replace('[Name]', 'Valued Client').replace('[Company]', 'Enterprise Corp');
             
             let structuralShell = `
                 <div style="font-family:'Helvetica Neue',Arial,sans-serif; background-color:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #eef2f5;">
@@ -516,18 +512,23 @@ HTML_LAYOUT = """
             fd.append('manual_emails', manualEmails);
             fd.append('targets', JSON.stringify(ingestedTargets));
 
-            let response = await fetch('/api/start_broadcast', { method: 'POST', body: fd });
-            let res = await response.json();
-            
-            if(res.success) {
-                document.getElementById('start-btn').disabled = true;
-                document.getElementById('stop-btn').disabled = false;
-                document.getElementById('status-spinner').classList.remove('hidden');
-                document.getElementById('status-spinner').classList.add('flex');
+            try {
+                let response = await fetch('/api/start_broadcast', { method: 'POST', body: fd });
+                let res = await response.json();
                 
-                synchronizationLoopInterval = setInterval(fetchEcosystemTelemetry, 1000);
-            } else {
-                alert(res.message);
+                if(res.success) {
+                    document.getElementById('start-btn').disabled = true;
+                    document.getElementById('stop-btn').disabled = false;
+                    document.getElementById('status-spinner').classList.remove('hidden');
+                    document.getElementById('status-spinner').classList.add('flex');
+                    
+                    if(synchronizationLoopInterval) clearInterval(synchronizationLoopInterval);
+                    synchronizationLoopInterval = setInterval(fetchEcosystemTelemetry, 1000);
+                } else {
+                    alert(res.message);
+                }
+            } catch(e) {
+                alert("API Request Failed: " + e.message);
             }
         }
 
@@ -536,33 +537,35 @@ HTML_LAYOUT = """
         }
 
         async function fetchEcosystemTelemetry() {
-            let response = await fetch('/api/get_status');
-            let data = await response.json();
+            try {
+                let response = await fetch('/api/get_status');
+                let data = await response.json();
 
-            document.getElementById('progress-text').innerText = `${data.processed_count} / ${data.total_records}`;
-            document.getElementById('success-text').innerText = data.success_count;
-            document.getElementById('failed-text').innerText = data.failed_count;
-            
-            let rate = data.total_records > 0 ? Math.round((data.processed_count / data.total_records) * 100) : 0;
-            document.getElementById('rate-text').innerText = `${rate}%`;
+                document.getElementById('progress-text').innerText = `${data.processed_count} / ${data.total_records}`;
+                document.getElementById('success-text').innerText = data.success_count;
+                document.getElementById('failed-text').innerText = data.failed_count;
+                
+                let rate = data.total_records > 0 ? Math.round((data.processed_count / data.total_records) * 100) : 0;
+                document.getElementById('rate-text').innerText = `${rate}%`;
 
-            let term = document.getElementById('log-terminal');
-            term.innerHTML = '';
-            if(data.logs.length === 0) {
-                term.innerHTML = `<div class="text-gray-600">Awaiting execution...</div>`;
-            } else {
-                data.logs.forEach(log => {
-                    term.innerHTML += `<div class="py-0.5 border-b border-gray-900/50 truncate">${log}</div>`;
-                });
-            }
+                let term = document.getElementById('log-terminal');
+                term.innerHTML = '';
+                if(data.logs.length === 0) {
+                    term.innerHTML = `<div class="text-gray-600">Awaiting execution...</div>`;
+                } else {
+                    data.logs.forEach(log => {
+                        term.innerHTML += `<div class="py-0.5 border-b border-gray-900/50 truncate">${log}</div>`;
+                    });
+                }
 
-            if(!data.is_running) {
-                clearInterval(synchronizationLoopInterval);
-                document.getElementById('start-btn').disabled = false;
-                document.getElementById('stop-btn').disabled = true;
-                document.getElementById('status-spinner').classList.remove('flex');
-                document.getElementById('status-spinner').classList.add('hidden');
-            }
+                if(!data.is_running) {
+                    clearInterval(synchronizationLoopInterval);
+                    document.getElementById('start-btn').disabled = false;
+                    document.getElementById('stop-btn').disabled = true;
+                    document.getElementById('status-spinner').classList.remove('flex');
+                    document.getElementById('status-spinner').classList.add('hidden');
+                }
+            } catch(e) {}
         }
     </script>
 </body>
@@ -571,3 +574,4 @@ HTML_LAYOUT = """
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
