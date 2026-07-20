@@ -1,5 +1,6 @@
 import os
 import re
+import socket
 import smtplib
 import concurrent.futures
 from email.mime.text import MIMEText
@@ -11,6 +12,19 @@ from flask import Blueprint, render_template_string, request, jsonify, session
 # FLASK BLUEPRINT DEFINITION
 # =========================================================================
 script43_bp = Blueprint('script43', __name__)
+
+# =========================================================================
+# FORCE IPV4 CONNECTION (FIX FOR [Errno 101] Network is Unreachable)
+# =========================================================================
+old_getaddrinfo = socket.getaddrinfo
+
+def new_getaddrinfo(*args, **kwargs):
+    # Force socket to resolve ONLY IPv4 addresses (AF_INET)
+    responses = old_getaddrinfo(*args, **kwargs)
+    return [response for response in responses if response[0] == socket.AF_INET]
+
+# Override socket address resolution globally for SMTP stability
+socket.getaddrinfo = new_getaddrinfo
 
 # =========================================================================
 # HELPER FUNCTIONS
@@ -32,15 +46,20 @@ def send_single_email(smtp_host, smtp_port, username, password, sender_email, re
 
         port = int(smtp_port)
 
-        # Port 465 uses SSL directly, Port 587 uses STARTTLS
+        # Connect with IPv4 Socket logic & Timeout
+        server = None
+        
+        # Priority 1: Port 465 (Direct SSL) or Specified Port
         if port == 465:
-            server = smtplib.SMTP_SSL(smtp_host, port, timeout=12)
+            server = smtplib.SMTP_SSL(smtp_host, port, timeout=15)
         else:
-            server = smtplib.SMTP(smtp_host, port, timeout=12)
+            server = smtplib.SMTP(smtp_host, port, timeout=15)
+            server.ehlo()
             if use_tls:
                 server.starttls()
-        
-        # Login if credentials provided
+                server.ehlo()
+
+        # Login
         if username and password:
             server.login(username, password)
 
@@ -48,8 +67,11 @@ def send_single_email(smtp_host, smtp_port, username, password, sender_email, re
         server.quit()
 
         return {"email": recipient, "status": "Success", "error": None}
+
     except smtplib.SMTPAuthenticationError:
-        return {"email": recipient, "status": "Failed", "error": "Auth Failed: Incorrect Username/App Password"}
+        return {"email": recipient, "status": "Failed", "error": "Auth Error: Wrong Email/App Password"}
+    except socket.error as se:
+        return {"email": recipient, "status": "Failed", "error": f"Network Error: {str(se)} (Check Port/Hosting Policy)"}
     except Exception as e:
         return {"email": recipient, "status": "Failed", "error": str(e)}
 
@@ -80,9 +102,12 @@ def handle_bulk_mail():
     if not all([smtp_host, smtp_port, sender_email, subject, body, recipients_raw]):
         return jsonify({"success": False, "message": "All required parameters must be provided."})
 
-    # If username is empty, fallback to sender_email
+    # Auto fallback username to sender_email if blank
     if not username:
         username = sender_email
+
+    # Sanitize password (remove spaces if user pasted 16-digit Google App Pass with spaces)
+    password = password.replace(" ", "")
 
     raw_list = [e.strip() for e in re.split(r'[\n,;]+', recipients_raw) if e.strip()]
     valid_recipients = list(set([e for e in raw_list if validate_email(e)]))
@@ -94,7 +119,8 @@ def handle_bulk_mail():
     success_count = 0
     failed_count = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    # Reduced worker threads to 2 to prevent rate-limiting/firewall triggers on Cloud IPs
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = [
             executor.submit(
                 send_single_email,
@@ -170,7 +196,7 @@ UI_LAYOUT = """
                 <h1 class="text-xl md:text-2xl font-bold heading-font tracking-wide text-white flex items-center gap-2">
                     <i class="fa-solid fa-paper-plane text-indigo-400"></i> Enterprise Bulk Email Dispatcher
                 </h1>
-                <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Multi-Threaded SMTP Delivery • Logs • Diagnostics</p>
+                <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">IPv4 Socket Direct Engine • Logs • Diagnostics</p>
             </div>
             <a href="/" class="bg-gray-900 border border-gray-800 text-gray-300 text-xs px-4 py-2.5 rounded-xl hover:bg-gray-800 transition font-medium">
                 <i class="fa-solid fa-arrow-left mr-1.5"></i> Dashboard
@@ -189,15 +215,15 @@ UI_LAYOUT = """
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
                             <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">SMTP Host</label>
-                            <input type="text" id="smtp_host" required placeholder="smtp.gmail.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                            <input type="text" id="smtp_host" required value="smtp.gmail.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Port</label>
-                            <input type="number" id="smtp_port" value="587" required class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Port (Try 465 if 587 fails)</label>
+                            <input type="number" id="smtp_port" value="465" required class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                         <div>
                             <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Sender Email</label>
-                            <input type="email" id="sender_email" required placeholder="sender@gmail.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                            <input type="email" id="sender_email" required placeholder="yourname@gmail.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                     </div>
 
@@ -207,21 +233,21 @@ UI_LAYOUT = """
                             <input type="text" id="username" placeholder="Leave empty to use Sender Email" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">App Password</label>
-                            <input type="password" id="password" required placeholder="Google App Password (16 digits)" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">App Password (16 Characters)</label>
+                            <input type="password" id="password" required placeholder="xxxx xxxx xxxx xxxx" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                     </div>
 
                     <div class="flex items-center gap-2 pt-1">
                         <input type="checkbox" id="use_tls" checked class="w-4 h-4 rounded bg-gray-950 border-gray-800 text-indigo-600 focus:ring-0">
-                        <label for="use_tls" class="text-xs text-gray-300 font-medium">Use STARTTLS Encryption (Port 587)</label>
+                        <label for="use_tls" class="text-xs text-gray-300 font-medium">Use TLS / STARTTLS Protocol</label>
                     </div>
 
                     <h3 class="text-sm font-bold text-white heading-font border-b border-gray-800 pb-2 pt-2">Message & Recipients</h3>
 
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Subject</label>
-                        <input type="text" id="subject" required placeholder="Subject line" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                        <input type="text" id="subject" required placeholder="Important Notice" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                     </div>
 
                     <div>
@@ -271,7 +297,7 @@ UI_LAYOUT = """
                 <!-- INDIVIDUAL RESULTS LIST -->
                 <div class="cyber-card p-6 rounded-2xl space-y-3">
                     <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
-                        <i class="fa-solid fa-list-check text-indigo-400"></i> Recipient Status & Errors
+                        <i class="fa-solid fa-list-check text-indigo-400"></i> Recipient Status & Error Cause
                     </h3>
                     <div id="resultsContainer" class="space-y-2 max-h-64 overflow-y-auto font-mono text-xs">
                         <p class="text-gray-500 italic text-[11px]">No emails processed yet.</p>
@@ -317,7 +343,7 @@ UI_LAYOUT = """
                     data.results.forEach(r => {
                         const isOk = r.status === 'Success';
                         const statusColor = isOk ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10';
-                        const errDetails = r.error ? `<div class="text-[10px] text-rose-300 mt-1 font-sans">${r.error}</div>` : '';
+                        const errDetails = r.error ? `<div class="text-[10px] text-rose-300 mt-1 font-sans font-semibold">${r.error}</div>` : '';
                         
                         container.innerHTML += `
                             <div class="p-2.5 bg-gray-950 border ${statusColor} rounded-xl text-[11px]">
