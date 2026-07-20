@@ -7,17 +7,17 @@ from io import StringIO
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from threading import Thread, Lock
-from flask import Flask, Blueprint, render_template_string, request, jsonify
+from flask import Flask, render_template_string, request, jsonify
 
 # =========================================================================
-# INITIALIZE FLASK CORE & BLUEPRINT
+# INITIALIZE FLASK CORE
 # =========================================================================
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-script43_bp = Blueprint('script43', __name__)
 db_lock = Lock()
 
+# Render persistent fallback config location
 CONFIG_FILE = '/tmp/email_config.json' if os.path.exists('/tmp') else 'email_config.json'
 
 broadcast_state = {
@@ -145,13 +145,13 @@ def async_email_executor(targets, subject, template_body, config):
         broadcast_state['logs'].insert(0, "🏁 OPERATION COMPLETE: Bulk broadcast finished.")
 
 # =========================================================================
-# FLASK ROUTING GATEWAYS & API
+# DIRECT ROUTING GATEWAYS & API
 # =========================================================================
-@script43_bp.route('/', methods=['GET'])
+@app.route('/', methods=['GET'])
 def index():
     return render_template_string(HTML_LAYOUT, config=load_config())
 
-@script43_bp.route('/api/save_settings', methods=['POST'])
+@app.route('/api/save_settings', methods=['POST'])
 def save_settings():
     config = {
         "smtp_server": request.form.get('smtp_server', '').strip(),
@@ -163,7 +163,7 @@ def save_settings():
     save_config(config)
     return jsonify({"success": True, "message": "SMTP Configuration Saved Successfully."})
 
-@script43_bp.route('/api/parse_csv', methods=['POST'])
+@app.route('/api/parse_csv', methods=['POST'])
 def parse_csv():
     if 'csv_file' not in request.files:
         return jsonify({"success": False, "message": "No file uploaded."})
@@ -193,7 +193,7 @@ def parse_csv():
     except Exception as e:
         return jsonify({"success": False, "message": f"CSV parse error: {str(e)}"})
 
-@script43_bp.route('/api/start_broadcast', methods=['POST'])
+@app.route('/api/start_broadcast', methods=['POST'])
 def start_broadcast():
     global broadcast_state
     if broadcast_state['is_running']:
@@ -216,7 +216,6 @@ def start_broadcast():
             if not line_clean:
                 continue
             
-            # Split comma separated entries
             sub_entries = line_clean.split(',')
             for entry in sub_entries:
                 item = entry.strip()
@@ -243,7 +242,7 @@ def start_broadcast():
     
     return jsonify({"success": True})
 
-@script43_bp.route('/api/stop_broadcast', methods=['POST'])
+@app.route('/api/stop_broadcast', methods=['POST'])
 def stop_broadcast():
     global broadcast_state
     with db_lock:
@@ -252,13 +251,11 @@ def stop_broadcast():
             broadcast_state['logs'].insert(0, "🛑 HALT SIGNAL RECEIVED: Stopping transmission worker...")
     return jsonify({"success": True})
 
-@script43_bp.route('/api/get_status', methods=['GET'])
+@app.route('/api/get_status', methods=['GET'])
 def get_status():
     global broadcast_state
     with db_lock:
         return jsonify(broadcast_state)
-
-app.register_blueprint(script43_bp, url_prefix='/')
 
 # =========================================================================
 # UI TEMPLATE
@@ -573,5 +570,6 @@ HTML_LAYOUT = """
 """
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
 
