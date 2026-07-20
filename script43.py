@@ -18,10 +18,7 @@ app.secret_key = os.urandom(24)
 script43_bp = Blueprint('script43', __name__)
 db_lock = Lock()
 
-# Default Backend SMTP Settings (Uses local MTA or environment variables)
-DEFAULT_SMTP_HOST = os.getenv('SMTP_HOST', 'localhost')
-DEFAULT_SMTP_PORT = int(os.getenv('SMTP_PORT', 25))
-DEFAULT_SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'no-reply@enterprise.com')
+CONFIG_FILE = 'email_config.json'
 
 # Dispatch Global Engine State Parameters
 broadcast_state = {
@@ -33,19 +30,45 @@ broadcast_state = {
     'logs': []
 }
 
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "smtp_server": "smtp.gmail.com",
+        "smtp_port": 587,
+        "smtp_user": "",
+        "smtp_pass": "",
+        "use_tls": True
+    }
+
+def save_config(config_data):
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config_data, f, indent=4)
+
 # =========================================================================
 # CORE EMAIL TRANSMISSION WORKFLOW ENGINE
 # =========================================================================
-def async_email_executor(targets, subject, template_body, sender_email):
+def async_email_executor(targets, subject, template_body, config):
     global broadcast_state
     
     try:
-        # Standard local SMTP Relay connection without requiring user/pass in UI
-        server = smtplib.SMTP(DEFAULT_SMTP_HOST, DEFAULT_SMTP_PORT, timeout=15)
+        if config.get('use_tls', True):
+            server = smtplib.SMTP(config['smtp_server'], int(config['smtp_port']), timeout=15)
+            server.starttls()
+        else:
+            server = smtplib.SMTP_SSL(config['smtp_server'], int(config['smtp_port']), timeout=15)
+            
+        server.login(config['smtp_user'], config['smtp_pass'])
+        with db_lock:
+            broadcast_state['logs'].insert(0, f"🔑 SMTP AUTHENTICATION SUCCESS: Connected as {config['smtp_user']}")
     except Exception as e:
         with db_lock:
             broadcast_state['is_running'] = False
-            broadcast_state['logs'].insert(0, f"🛑 CRITICAL SMTP RELAY ERROR: {str(e)}")
+            broadcast_state['logs'].insert(0, f"🛑 CRITICAL SMTP AUTH FAILURE: {str(e)}")
         return
 
     for item in targets:
@@ -64,20 +87,18 @@ def async_email_executor(targets, subject, template_body, sender_email):
             continue
 
         try:
-            # Dynamic token replacement
             custom_body = template_body.replace('[Name]', name).replace('[Company]', company)
             
-            # Professional HTML Shell Packaging
             professional_html_shell = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
                 <style>
-                    body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }}
+                    body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 0; }}
                     .wrapper {{ max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #eef2f5; }}
                     .header {{ background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 35px 40px; text-align: center; }}
-                    .header h1 {{ color: #ffffff; font-size: 24px; font-weight: 700; margin: 0; letter-spacing: -0.5px; }}
+                    .header h1 {{ color: #ffffff; font-size: 24px; font-weight: 700; margin: 0; }}
                     .content {{ padding: 40px; color: #334155; font-size: 16px; line-height: 1.6; }}
                     .footer {{ background-color: #f8fafc; padding: 25px 40px; text-align: center; border-top: 1px solid #f1f5f9; }}
                     .footer p {{ color: #94a3b8; font-size: 12px; margin: 0; }}
@@ -93,7 +114,6 @@ def async_email_executor(targets, subject, template_body, sender_email):
                     </div>
                     <div class="footer">
                         <p>© 2026 Executive Enterprise Communications. All rights reserved.</p>
-                        <p style="margin-top: 5px; font-size: 10px; color: #cbd5e1;">Official Communication Transmission Node</p>
                     </div>
                 </div>
             </body>
@@ -102,12 +122,12 @@ def async_email_executor(targets, subject, template_body, sender_email):
             
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = sender_email or DEFAULT_SENDER_EMAIL
+            msg['From'] = config['smtp_user']
             msg['To'] = email
             
             msg.attach(MIMEText(professional_html_shell, 'html'))
             
-            server.sendmail(msg['From'], email, msg.as_string())
+            server.sendmail(config['smtp_user'], email, msg.as_string())
             
             with db_lock:
                 broadcast_state['processed_count'] += 1
@@ -118,25 +138,37 @@ def async_email_executor(targets, subject, template_body, sender_email):
             with db_lock:
                 broadcast_state['processed_count'] += 1
                 broadcast_state['failed_count'] += 1
-                broadcast_state['logs'].insert(0, f"❌ DISPATCH FAILURE: Could not deliver to {email} -> {str(ex)}")
+                broadcast_state['logs'].insert(0, f"❌ DISPATCH FAILURE: {email} -> {str(ex)}")
                 
         time.sleep(0.5)
 
     try:
         server.quit()
-    except:
+    except Exception:
         pass
 
     with db_lock:
         broadcast_state['is_running'] = False
-        broadcast_state['logs'].insert(0, "🏁 OPERATION COMPLETE: Bulk broadcast operation finished.")
+        broadcast_state['logs'].insert(0, "🏁 OPERATION COMPLETE: Bulk broadcast finished.")
 
 # =========================================================================
 # FLASK ROUTING GATEWAYS & API
 # =========================================================================
 @script43_bp.route('/', methods=['GET'])
 def index():
-    return render_template_string(HTML_LAYOUT)
+    return render_template_string(HTML_LAYOUT, config=load_config())
+
+@script43_bp.route('/api/save_settings', methods=['POST'])
+def save_settings():
+    config = {
+        "smtp_server": request.form.get('smtp_server', '').strip(),
+        "smtp_port": int(request.form.get('smtp_port', 587)),
+        "smtp_user": request.form.get('smtp_user', '').strip(),
+        "smtp_pass": request.form.get('smtp_pass', '').strip(),
+        "use_tls": request.form.get('use_tls') == 'true'
+    }
+    save_config(config)
+    return jsonify({"success": True, "message": "SMTP Configuration Saved Successfully."})
 
 @script43_bp.route('/api/parse_csv', methods=['POST'])
 def parse_csv():
@@ -176,22 +208,19 @@ def start_broadcast():
         
     subject = request.form.get('subject', 'Operational Broadcast Bulletin')
     message_body = request.form.get('message_body', '')
-    sender_email = request.form.get('sender_email', DEFAULT_SENDER_EMAIL).strip()
     targets_json = request.form.get('targets', '[]')
     manual_emails_raw = request.form.get('manual_emails', '').strip()
     
     try:
         targets = json.loads(targets_json)
-    except:
+    except Exception:
         targets = []
         
-    # Process manually typed emails
     if manual_emails_raw:
         raw_lines = manual_emails_raw.replace(',', '\n').split('\n')
         for line in raw_lines:
             entry = line.strip()
             if "@" in entry:
-                # Support "email" or "email, name, company"
                 parts = [p.strip() for p in entry.split(',')]
                 e = parts[0]
                 n = parts[1] if len(parts) > 1 else "Valued Client"
@@ -201,16 +230,19 @@ def start_broadcast():
     if not targets:
         return jsonify({"success": False, "message": "No valid target email addresses provided."})
 
-    # Reset Broadcast Engine States
+    config = load_config()
+    if not config.get('smtp_user') or not config.get('smtp_pass'):
+        return jsonify({"success": False, "message": "Please configure SMTP Settings (Email & App Password) first."})
+
     with db_lock:
         broadcast_state['is_running'] = True
         broadcast_state['total_records'] = len(targets)
         broadcast_state['processed_count'] = 0
         broadcast_state['success_count'] = 0
         broadcast_state['failed_count'] = 0
-        broadcast_state['logs'] = ["🚀 INITIALIZING TRANSMISSION: Background thread started..."]
+        broadcast_state['logs'] = ["🚀 INITIALIZING TRANSMISSION: Connecting to SMTP Server..."]
 
-    thread = Thread(target=async_email_executor, args=(targets, subject, message_body, sender_email))
+    thread = Thread(target=async_email_executor, args=(targets, subject, message_body, config))
     thread.start()
     
     return jsonify({"success": True})
@@ -262,23 +294,49 @@ HTML_LAYOUT = """
             </div>
         </div>
         <div class="flex items-center gap-2 text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-xl text-indigo-400">
-            <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Service Active
+            <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Service Ready
         </div>
     </header>
 
     <main class="max-w-7xl mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        <!-- COLUMN 1: RECIPIENTS (MANUAL & CSV) -->
+        <!-- COLUMN 1: SMTP CONFIG & RECIPIENTS -->
         <div class="space-y-6">
-            <!-- SENDER IDENTIFIER -->
+            <!-- SMTP SETTINGS -->
             <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-3">
                 <h3 class="text-sm font-bold uppercase text-indigo-400 tracking-wider flex items-center gap-2">
-                    <i class="fa-solid fa-user-gear"></i> Sender Settings
+                    <i class="fa-solid fa-server"></i> SMTP Credentials
                 </h3>
-                <div>
-                    <label class="block text-gray-400 text-xs font-medium mb-1">From Email Address</label>
-                    <input type="email" id="sender_email" value="noreply@enterprise.com" required placeholder="sender@domain.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500">
-                </div>
+                <form id="smtp-form" onsubmit="saveSMTPSettings(event)" class="space-y-3 text-xs">
+                    <div>
+                        <label class="block text-gray-400 font-medium mb-1">SMTP Server</label>
+                        <input type="text" id="smtp_server" value="{{ config.smtp_server }}" required placeholder="smtp.gmail.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-gray-400 font-medium mb-1">Port</label>
+                            <input type="number" id="smtp_port" value="{{ config.smtp_port }}" required class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 font-medium mb-1">Security</label>
+                            <select id="use_tls" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-2 py-2 text-white focus:outline-none focus:border-indigo-500">
+                                <option value="true" {% if config.use_tls %}selected{% endif %}>STARTTLS (587)</option>
+                                <option value="false" {% if not config.use_tls %}selected{% endif %}>SSL/TLS (465)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-gray-400 font-medium mb-1">Gmail / Sender Email</label>
+                        <input type="email" id="smtp_user" value="{{ config.smtp_user }}" required placeholder="your.email@gmail.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-gray-400 font-medium mb-1">App Password</label>
+                        <input type="password" id="smtp_pass" value="{{ config.smtp_pass }}" required placeholder="•••• •••• •••• ••••" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-xl transition cursor-pointer shadow-md">
+                        Save SMTP Settings
+                    </button>
+                </form>
             </div>
 
             <!-- MANUAL RECIPIENTS ENTRY -->
@@ -286,23 +344,23 @@ HTML_LAYOUT = """
                 <h3 class="text-sm font-bold uppercase text-indigo-400 tracking-wider flex items-center gap-2">
                     <i class="fa-solid fa-keyboard"></i> Manual Email Input
                 </h3>
-                <p class="text-[11px] text-gray-400 leading-relaxed">Type or paste emails (one per line or comma-separated):</p>
-                <textarea id="manual_emails" rows="5" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 resize-none" placeholder="user1@domain.com&#10;user2@domain.com, John, Acme Corp"></textarea>
+                <p class="text-[11px] text-gray-400 leading-relaxed">Type emails (one per line or comma-separated):</p>
+                <textarea id="manual_emails" rows="4" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 resize-none" placeholder="user1@domain.com&#10;user2@domain.com, John, Acme Corp"></textarea>
             </div>
 
             <!-- INGEST TARGET CSV -->
-            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-3">
                 <h3 class="text-sm font-bold uppercase text-emerald-400 tracking-wider flex items-center gap-2">
                     <i class="fa-solid fa-file-csv"></i> Target Bulk CSV Upload
                 </h3>
                 <p class="text-[11px] text-gray-400 leading-relaxed">CSV Layout: <code class="text-emerald-400 font-mono">email, name, company</code></p>
-                <div class="border border-dashed border-gray-800 rounded-xl p-4 bg-gray-950/50 text-center relative cursor-pointer hover:border-gray-700 transition">
+                <div class="border border-dashed border-gray-800 rounded-xl p-3 bg-gray-950/50 text-center relative cursor-pointer hover:border-gray-700 transition">
                     <input type="file" id="csv_file" accept=".csv" onchange="uploadTargetCSV()" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
-                    <i class="fa-solid fa-cloud-arrow-up text-xl text-gray-500 mb-1"></i>
+                    <i class="fa-solid fa-cloud-arrow-up text-lg text-gray-500 mb-1"></i>
                     <p class="text-xs font-semibold text-gray-300">Upload CSV File</p>
                 </div>
-                <div id="target-counter-pane" class="hidden text-xs bg-gray-950 border border-gray-800 p-3 rounded-xl flex items-center justify-between">
-                    <span class="text-gray-400">CSV Loaded Targets:</span>
+                <div id="target-counter-pane" class="hidden text-xs bg-gray-950 border border-gray-800 p-2.5 rounded-xl flex items-center justify-between">
+                    <span class="text-gray-400">CSV Targets:</span>
                     <span id="target-badge-count" class="bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20">0 Loaded</span>
                 </div>
             </div>
@@ -322,8 +380,8 @@ HTML_LAYOUT = """
                         </div>
                         <div>
                             <label class="block text-gray-400 font-medium mb-1">Message Body (HTML Supported)</label>
-                            <p class="text-[10px] text-gray-500 mb-1">Dynamic tokens: <span class="text-indigo-400 font-mono">[Name]</span>, <span class="text-indigo-400 font-mono">[Company]</span></p>
-                            <textarea id="email_body" rows="8" onkeyup="updateLivePreview()" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-white font-mono focus:outline-none focus:border-indigo-500 resize-none" placeholder="&lt;p&gt;Dear [Name],&lt;/p&gt;&#10;&lt;p&gt;We are pleased to share our latest service offerings for [Company].&lt;/p&gt;"></textarea>
+                            <p class="text-[10px] text-gray-500 mb-1">Tokens: <span class="text-indigo-400 font-mono">[Name]</span>, <span class="text-indigo-400 font-mono">[Company]</span></p>
+                            <textarea id="email_body" rows="8" onkeyup="updateLivePreview()" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-white font-mono focus:outline-none focus:border-indigo-500 resize-none" placeholder="&lt;p&gt;Dear [Name],&lt;/p&gt;&#10;&lt;p&gt;We are pleased to share our latest update for [Company].&lt;/p&gt;"></textarea>
                         </div>
                         <div class="flex gap-3">
                             <button onclick="triggerBroadcastSequence()" id="start-btn" class="flex-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold py-3 rounded-xl transition cursor-pointer text-center shadow-lg shadow-indigo-500/10 flex items-center justify-center gap-2">
@@ -413,6 +471,20 @@ HTML_LAYOUT = """
             document.getElementById('live-render-frame').innerHTML = structuralShell;
         }
 
+        async function saveSMTPSettings(e) {
+            e.preventDefault();
+            let fd = new FormData();
+            fd.append('smtp_server', document.getElementById('smtp_server').value);
+            fd.append('smtp_port', document.getElementById('smtp_port').value);
+            fd.append('smtp_user', document.getElementById('smtp_user').value);
+            fd.append('smtp_pass', document.getElementById('smtp_pass').value);
+            fd.append('use_tls', document.getElementById('use_tls').value);
+
+            let response = await fetch('/api/save_settings', { method: 'POST', body: fd });
+            let res = await response.json();
+            alert(res.message);
+        }
+
         async function uploadTargetCSV() {
             let fileInput = document.getElementById('csv_file');
             if(fileInput.files.length === 0) return;
@@ -441,7 +513,6 @@ HTML_LAYOUT = """
             let fd = new FormData();
             fd.append('subject', document.getElementById('email_subject').value);
             fd.append('message_body', document.getElementById('email_body').value);
-            fd.append('sender_email', document.getElementById('sender_email').value);
             fd.append('manual_emails', manualEmails);
             fd.append('targets', JSON.stringify(ingestedTargets));
 
@@ -500,4 +571,3 @@ HTML_LAYOUT = """
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
-
