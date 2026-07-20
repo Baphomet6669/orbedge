@@ -54,23 +54,29 @@ def analyze_sitemap(url):
                 "exists": True,
                 "code": 200,
                 "url_count": url_count,
-                "summary": f"Active Sitemap detected containing {url_count} indexed URL nodes.",
-                "seo_impact": "Excellent for SEO. Allows Googlebot & Bingbot to discover, crawl, and index deep links efficiently."
+                "url": url,
+                "summary": f"Sitemap XML contains {url_count} total URL paths.",
+                "explanation": "What it means: Sitemap is a map of your website. It helps Google & Bing find all your pages instantly.",
+                "fix_action": f"View Sitemap File"
             }
         return {
             "exists": False,
             "code": res.status_code,
             "url_count": 0,
-            "summary": "Sitemap XML file not found at default root path.",
-            "seo_impact": "High SEO Risk. Search Engines may miss deep pages, delaying indexing for new content."
+            "url": url,
+            "summary": "Sitemap XML missing or not accessible.",
+            "explanation": "What it means: Google crawlers might miss deep pages on your site. Create a sitemap using Yoast SEO or RankMath.",
+            "fix_action": "Generate Sitemap XML"
         }
     except Exception:
         return {
             "exists": False,
-            "code": "Unreachable",
+            "code": "Timeout",
             "url_count": 0,
-            "summary": "Connection timeout while fetching sitemap.xml.",
-            "seo_impact": "Crawlers cannot reach sitemap file automatically."
+            "url": url,
+            "summary": "Sitemap request timed out.",
+            "explanation": "What it means: Server did not respond to sitemap lookup.",
+            "fix_action": "Check Server Response"
         }
 
 def analyze_robots(url):
@@ -79,34 +85,36 @@ def analyze_robots(url):
         if res.status_code == 200 and ("disallow" in res.text.lower() or "user-agent" in res.text.lower()):
             content = res.text
             is_blocking_all = bool(re.search(r'Disallow:\s*/\s*$', content, re.MULTILINE))
-            has_sitemap_link = "sitemap:" in content.lower()
             
-            seo_verdict = "Blocking all search engines! Site won't index on Google." if is_blocking_all else "SEO Friendly. Robots.txt allows search crawlers to scan allowed routes properly."
+            explanation = "SEO Danger: Your site is blocking Googlebot from indexing!" if is_blocking_all else "Good Job: Search engines are allowed to crawl your site."
             
             return {
                 "exists": True,
                 "code": 200,
+                "url": url,
                 "is_blocking_all": is_blocking_all,
-                "has_sitemap_link": has_sitemap_link,
-                "summary": content[:300] + ("..." if len(content) > 300 else ""),
-                "seo_impact": seo_verdict
+                "summary": content[:250] + ("..." if len(content) > 250 else ""),
+                "explanation": explanation,
+                "fix_action": "View / Edit Robots.txt"
             }
         return {
             "exists": False,
             "code": res.status_code,
+            "url": url,
             "is_blocking_all": False,
-            "has_sitemap_link": False,
             "summary": "Robots.txt file missing or empty.",
-            "seo_impact": "Neutral / Mild Risk. Search engines will crawl everything by default, but crawl-budget cannot be managed."
+            "explanation": "What it means: Search engines will scan everything, but you cannot protect private admin pages.",
+            "fix_action": "Create Robots.txt File"
         }
     except Exception:
         return {
             "exists": False,
-            "code": "Unreachable",
+            "code": "Timeout",
+            "url": url,
             "is_blocking_all": False,
-            "has_sitemap_link": False,
-            "summary": "Connection timeout fetching robots.txt.",
-            "seo_impact": "Unable to verify bot crawling directives."
+            "summary": "Robots.txt connection failed.",
+            "explanation": "What it means: Server unreachable during robots lookup.",
+            "fix_action": "Verify Endpoint Route"
         }
 
 def analyze_manifest(url):
@@ -115,32 +123,33 @@ def analyze_manifest(url):
         if res.status_code == 200:
             try:
                 data = res.json()
-                app_name = data.get("name") or data.get("short_name") or "Unnamed Web App"
-                icons_count = len(data.get("icons", []))
-                theme_color = data.get("theme_color", "Default")
+                app_name = data.get("name") or data.get("short_name") or "Unnamed App"
                 return {
                     "exists": True,
                     "code": 200,
-                    "app_name": app_name,
-                    "icons_count": icons_count,
-                    "theme_color": theme_color,
-                    "summary": f"Valid PWA Manifest. Name: '{app_name}', Theme: {theme_color}, Icons: {icons_count}.",
-                    "seo_impact": "Great Mobile UX. Enables 'Add to Home Screen' PWA capabilities, boosting mobile engagement & search signals."
+                    "url": url,
+                    "summary": f"Valid Web App Manifest detected (App Name: '{app_name}').",
+                    "explanation": "What it means: Enables Progressive Web App (PWA) 'Add to Home Screen' on mobile phones.",
+                    "fix_action": "Inspect Manifest.json"
                 }
             except Exception:
                 pass
         return {
             "exists": False,
             "code": res.status_code,
-            "summary": "Manifest.json missing or invalid JSON format.",
-            "seo_impact": "Standard Web Application mode. Non-PWA structure."
+            "url": url,
+            "summary": "Manifest.json missing or invalid JSON.",
+            "explanation": "What it means: Site runs in standard browser mode without PWA installation support.",
+            "fix_action": "Create Manifest.json"
         }
     except Exception:
         return {
             "exists": False,
-            "code": "Unreachable",
-            "summary": "Unable to retrieve manifest.json.",
-            "seo_impact": "No Progressive Web App capabilities configured."
+            "code": "Timeout",
+            "url": url,
+            "summary": "Manifest.json connection failed.",
+            "explanation": "What it means: Unable to verify mobile PWA manifest status.",
+            "fix_action": "Check Manifest Config"
         }
 
 # =========================================================================
@@ -174,17 +183,28 @@ def run_toolkit_audit():
             "message": f"Target unreachable or connection timed out: {str(e)}"
         })
 
-    # 1. Title Extraction
+    # 1. WordPress CMS Detection
+    html_lower = html_body.lower()
+    is_wordpress = any(indicator in html_lower for indicator in [
+        "wp-content", "wp-includes", "wp-json", "wordpress", "elementor", "yoast"
+    ])
+    cms_detected = "WordPress CMS Platform" if is_wordpress else "Custom / Non-WordPress Architecture"
+
+    # 2. Responsiveness Check
+    has_viewport = bool(re.search(r'<meta\s+name=["\']viewport["\']', html_body, re.IGNORECASE))
+    is_responsive = has_viewport or ("@media" in html_lower)
+    responsive_status = "Responsive (Mobile & Desktop Friendly)" if is_responsive else "Non-Responsive (Viewport Tag Missing)"
+
+    # 3. Title & Meta Directives
     title_match = re.search(r'<title[^>]*>(.*?)</title>', html_body, re.IGNORECASE | re.DOTALL)
     page_title = title_match.group(1).strip() if title_match else "No Title Tag Found"
 
-    # 2. Meta Tags Extraction
     meta_description = extract_meta_tag(html_body, "description") or "Not Specified"
     meta_keywords = extract_meta_tag(html_body, "keywords") or "Not Specified"
     og_title = extract_meta_tag(html_body, "og:title") or "Not Specified"
     og_description = extract_meta_tag(html_body, "og:description") or "Not Specified"
 
-    # 3. Heading Tags Hierarchy (H1 to H5)
+    # 4. Heading Tags Hierarchy (H1 to H5)
     headings = {}
     for i in range(1, 6):
         tag_name = f"h{i}"
@@ -195,31 +215,26 @@ def run_toolkit_audit():
             "sample": clean_matches[:3]
         }
 
-    # 4. Canonical URL
+    # 5. Canonical URL & Favicon
     canonical_match = re.search(r'<link\s+rel=["\']canonical["\']\s+href=["\']([^"\']*)["\']', html_body, re.IGNORECASE)
     canonical_url = canonical_match.group(1) if canonical_match else "Not Configured"
 
-    # 5. Favicon Detection
     favicon_match = re.search(r'<link\s+rel=["\'](?:shortcut )?icon["\']\s+href=["\']([^"\']*)["\']', html_body, re.IGNORECASE)
-    if favicon_match:
-        fav_path = favicon_match.group(1)
-        favicon_url = urllib.parse.urljoin(full_url, fav_path)
-    else:
-        favicon_url = f"{base_scheme_url}/favicon.ico"
+    favicon_url = urllib.parse.urljoin(full_url, favicon_match.group(1)) if favicon_match else f"{base_scheme_url}/favicon.ico"
 
     # 6. Header & Footer Analysis
-    has_header_tag = bool(re.search(r'<(header|nav)[^>]*>', html_body, re.IGNORECASE))
-    has_footer_tag = bool(re.search(r'<footer[^>]*>', html_body, re.IGNORECASE))
+    has_header = bool(re.search(r'<(header|nav)[^>]*>', html_body, re.IGNORECASE))
+    has_footer = bool(re.search(r'<footer[^>]*>', html_body, re.IGNORECASE))
 
     header_footer_analysis = {
-        "has_header": has_header_tag,
-        "has_footer": has_footer_tag,
-        "header_desc": "Header/Navigation block detected. Essential for site navigation, branding, and user retention." if has_header_tag else "Missing <header> or <nav> tag. Can harm user navigation experience.",
-        "footer_desc": "Footer area detected. Crucial for legal links (Privacy, Terms), copyright, contact info, and sitewide SEO anchors." if has_footer_tag else "Missing <footer> tag. May degrade trust signals for search engines.",
-        "seo_impact": "Both Header and Footer are present! Perfect for semantic HTML5 structure and indexing crawlers." if (has_header_tag and has_footer_tag) else "Incomplete HTML5 semantic landmark structure. Add missing landmark tags."
+        "has_header": has_header,
+        "has_footer": has_footer,
+        "header_desc": "Header/Navbar present. Provides quick site navigation and branding." if has_header else "Missing <header> or <nav> tag.",
+        "footer_desc": "Footer present. Contains legal links, copyright, and SEO sitemap anchors." if has_footer else "Missing <footer> tag.",
+        "seo_impact": "Header and Footer are well structured for Google crawlers." if (has_header and has_footer) else "Semantic landmark tags missing. Recommended to fix for better ranking."
     }
 
-    # 7. Concurrent File Deep Inspection (Sitemap, Robots, Manifest)
+    # 7. Concurrent Core Files Inspection (Sitemap, Robots, Manifest)
     sitemap_url = f"{base_scheme_url}/sitemap.xml"
     robots_url = f"{base_scheme_url}/robots.txt"
     manifest_url = f"{base_scheme_url}/manifest.json"
@@ -233,7 +248,7 @@ def run_toolkit_audit():
         robots_info = f_robots.result()
         manifest_info = f_manifest.result()
 
-    # 8. Broken Link Detection (Top 6 On-Page Anchors)
+    # 8. Broken Link Check
     found_links = list(set(re.findall(r'href=["\'](https?://[^"\']+)["\']', html_body)))[:6]
     broken_links = []
     
@@ -251,26 +266,28 @@ def run_toolkit_audit():
     # 9. HTTPS Security Check
     is_https = full_url.startswith("https://")
 
-    # 10. WHOIS Lookup & Host Intelligence
+    # 10. WHOIS Lookup Data
     try:
         ip_address = socket.gethostbyname(domain)
         dns_records = socket.gethostbyname_ex(domain)
         
         whois_data = f"================================================\n" \
-                     f"         DOMAIN INTEL & WHOIS RECORD            \n" \
+                     f"         DETAILED WHOIS & HOST INTEL            \n" \
                      f"================================================\n" \
                      f"Target Domain    : {domain}\n" \
                      f"Resolved IPv4    : {ip_address}\n" \
-                     f"Host CNAME Alias : {dns_records[0]}\n" \
+                     f"Host Alias/CNAME : {dns_records[0]}\n" \
                      f"IP Map Array     : {', '.join(dns_records[2])}\n" \
-                     f"Protocol Mode    : {'HTTPS (Encrypted TLS)' if is_https else 'HTTP (Unencrypted)'}\n" \
-                     f"TLD Classification: .{domain.split('.')[-1]}\n" \
+                     f"Protocol Security: {'HTTPS (SSL Encrypted)' if is_https else 'HTTP (Unencrypted Insecure)'}\n" \
+                     f"TLD Category     : .{domain.split('.')[-1]}\n" \
+                     f"CMS Platform     : {cms_detected}\n" \
+                     f"Viewport Layout  : {responsive_status}\n" \
                      f"Audit Stamp      : {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n" \
-                     f"Status           : RESOLVED & ACTIVE ON NETWORK\n" \
+                     f"Host Network Status: LIVE & ACTIVE\n" \
                      f"================================================"
     except Exception:
         ip_address = "Resolution Failed"
-        whois_data = f"Domain Name: {domain}\nStatus: Could not resolve DNS record or domain host unreachable."
+        whois_data = f"Domain Name: {domain}\nStatus: Could not resolve DNS or WHOIS record for target."
 
     return jsonify({
         "success": True,
@@ -278,6 +295,10 @@ def run_toolkit_audit():
         "full_url": full_url,
         "latency": latency,
         "is_https": is_https,
+        "is_wordpress": is_wordpress,
+        "cms_detected": cms_detected,
+        "is_responsive": is_responsive,
+        "responsive_status": responsive_status,
         "ip_address": ip_address,
         "title": page_title,
         "canonical_url": canonical_url,
@@ -328,9 +349,9 @@ UI_LAYOUT = """
         <div class="cyber-card p-6 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-4 border-l-4 border-l-indigo-500 shadow-2xl">
             <div>
                 <h1 class="text-xl md:text-2xl font-bold heading-font tracking-wide text-white flex items-center gap-2">
-                    <i class="fa-solid fa-microchip text-indigo-400"></i> Enterprise SEO & Deep Web Suite
+                    <i class="fa-solid fa-microchip text-indigo-400"></i> Enterprise Web & SEO Intelligence Suite
                 </h1>
-                <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Realtime Technical Audit • Deep Content & Infrastructure Inspection</p>
+                <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Instant Technical Audit • CMS • Responsiveness • WHOIS</p>
             </div>
             <a href="/" class="bg-gray-900 border border-gray-800 text-gray-300 text-xs px-4 py-2.5 rounded-xl hover:bg-gray-800 transition font-medium">
                 <i class="fa-solid fa-arrow-left mr-1.5"></i> Dashboard
@@ -340,7 +361,7 @@ UI_LAYOUT = """
         <!-- TARGET INPUT PANEL -->
         <div class="cyber-card p-6 rounded-2xl glow-indigo">
             <form id="auditForm" onsubmit="triggerScanSequence(event)" class="space-y-3">
-                <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider">Target Domain / Endpoint URL Address</label>
+                <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider">Target Domain / URL Address</label>
                 <div class="flex flex-col sm:flex-row gap-3">
                     <div class="relative flex-1">
                         <span class="absolute inset-y-0 left-0 pl-4 flex items-center text-gray-500"><i class="fa-solid fa-globe text-sm"></i></span>
@@ -348,7 +369,7 @@ UI_LAYOUT = """
                     </div>
                     <button type="submit" id="submitBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase font-bold tracking-wider px-8 py-3.5 rounded-xl cursor-pointer transition shrink-0 shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
                         <i id="spinIcon" class="fa-solid fa-circle-notch animate-spin text-sm hidden"></i>
-                        <span>Run Full SEO Audit</span>
+                        <span>Start SEO Audit</span>
                     </button>
                 </div>
             </form>
@@ -358,81 +379,94 @@ UI_LAYOUT = """
         <div id="analyticsDashboard" class="hidden space-y-6">
             
             <!-- QUICK METRIC BADGES -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div class="cyber-card p-4 rounded-xl border-b-2 border-b-indigo-500">
                     <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider block">HTTPS Protocol</span>
                     <h3 id="badge-https" class="text-xs md:text-sm font-bold mt-1">Checking...</h3>
+                </div>
+                <div class="cyber-card p-4 rounded-xl border-b-2 border-b-blue-500">
+                    <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider block">CMS Platform</span>
+                    <h3 id="badge-cms" class="text-xs md:text-sm font-bold text-white mt-1 truncate">Checking...</h3>
+                </div>
+                <div class="cyber-card p-4 rounded-xl border-b-2 border-b-emerald-500">
+                    <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider block">Mobile Responsive</span>
+                    <h3 id="badge-responsive" class="text-xs md:text-sm font-bold mt-1">Checking...</h3>
                 </div>
                 <div class="cyber-card p-4 rounded-xl border-b-2 border-b-cyan-500">
                     <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider block">Server Latency</span>
                     <h3 id="badge-latency" class="text-xs md:text-sm font-bold text-white font-mono mt-1">0 ms</h3>
                 </div>
-                <div class="cyber-card p-4 rounded-xl border-b-2 border-b-emerald-500">
-                    <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider block">Structure Health</span>
-                    <h3 id="badge-structure" class="text-xs md:text-sm font-bold text-emerald-400 mt-1">Analyzing...</h3>
-                </div>
-                <div class="cyber-card p-4 rounded-xl border-b-2 border-b-purple-500">
+                <div class="cyber-card p-4 rounded-xl border-b-2 border-b-purple-500 col-span-2 md:col-span-1">
                     <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider block">Resolved IPv4</span>
                     <h3 id="badge-ip" class="text-xs md:text-sm font-bold text-gray-300 font-mono mt-1 truncate">0.0.0.0</h3>
                 </div>
             </div>
 
-            <!-- SYSTEM FILES DEEP INSPECTION SECTION -->
+            <!-- EASY CORE FILES DEEP INSPECTION -->
             <div class="cyber-card p-6 rounded-2xl space-y-4">
-                <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                    <i class="fa-solid fa-file-code text-indigo-400"></i> Core Search Engine Files & Manifest Analysis
+                <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center justify-between">
+                    <span class="flex items-center gap-2"><i class="fa-solid fa-file-code text-indigo-400"></i> Core Search Engine Files (Detailed Analysis)</span>
                 </h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     
                     <!-- SITEMAP CARD -->
-                    <div id="card-sitemap" class="p-4 rounded-xl border bg-gray-950 space-y-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-white"><i class="fa-solid fa-sitemap text-indigo-400 mr-1.5"></i> Sitemap.xml</span>
-                            <span id="badge-sitemap" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
+                    <div id="card-sitemap" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-sitemap text-indigo-400 mr-1.5"></i> Sitemap.xml</span>
+                                <span id="badge-sitemap" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
+                            </div>
+                            <p id="desc-sitemap" class="text-[11px] text-gray-200 font-semibold leading-relaxed"></p>
+                            <p id="exp-sitemap" class="text-[10px] text-gray-400 leading-relaxed"></p>
                         </div>
-                        <p id="desc-sitemap" class="text-[11px] text-gray-300 leading-relaxed"></p>
-                        <p id="seo-sitemap" class="text-[10px] font-medium text-indigo-300 border-t border-gray-800/80 pt-2 mt-1"></p>
+                        <a id="btn-sitemap" target="_blank" class="w-full text-center bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Sitemap File</a>
                     </div>
 
                     <!-- ROBOTS CARD -->
-                    <div id="card-robots" class="p-4 rounded-xl border bg-gray-950 space-y-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-white"><i class="fa-solid fa-robot text-cyan-400 mr-1.5"></i> Robots.txt</span>
-                            <span id="badge-robots" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
+                    <div id="card-robots" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-robot text-cyan-400 mr-1.5"></i> Robots.txt</span>
+                                <span id="badge-robots" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
+                            </div>
+                            <p id="desc-robots" class="text-[11px] text-gray-200 font-semibold leading-relaxed font-mono truncate"></p>
+                            <p id="exp-robots" class="text-[10px] text-gray-400 leading-relaxed"></p>
                         </div>
-                        <p id="desc-robots" class="text-[11px] text-gray-300 font-mono leading-relaxed truncate"></p>
-                        <p id="seo-robots" class="text-[10px] font-medium text-indigo-300 border-t border-gray-800/80 pt-2 mt-1"></p>
+                        <a id="btn-robots" target="_blank" class="w-full text-center bg-cyan-600/20 border border-cyan-500/30 hover:bg-cyan-600/40 text-cyan-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Robots.txt File</a>
                     </div>
 
                     <!-- MANIFEST CARD -->
-                    <div id="card-manifest" class="p-4 rounded-xl border bg-gray-950 space-y-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-white"><i class="fa-solid fa-mobile-screen text-amber-400 mr-1.5"></i> Manifest.json</span>
-                            <span id="badge-manifest" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
+                    <div id="card-manifest" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-mobile-screen text-amber-400 mr-1.5"></i> Manifest.json</span>
+                                <span id="badge-manifest" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
+                            </div>
+                            <p id="desc-manifest" class="text-[11px] text-gray-200 font-semibold leading-relaxed"></p>
+                            <p id="exp-manifest" class="text-[10px] text-gray-400 leading-relaxed"></p>
                         </div>
-                        <p id="desc-manifest" class="text-[11px] text-gray-300 leading-relaxed"></p>
-                        <p id="seo-manifest" class="text-[10px] font-medium text-indigo-300 border-t border-gray-800/80 pt-2 mt-1"></p>
+                        <a id="btn-manifest" target="_blank" class="w-full text-center bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/40 text-amber-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Manifest File</a>
                     </div>
 
                 </div>
             </div>
 
-            <!-- HEADER & FOOTER ANALYSIS CARD -->
+            <!-- HEADER & FOOTER ANALYSIS -->
             <div class="cyber-card p-6 rounded-2xl space-y-4">
                 <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                    <i class="fa-solid fa-window-maximize text-emerald-400"></i> Header & Footer Semantic Layout Analysis
+                    <i class="fa-solid fa-window-maximize text-emerald-400"></i> Header & Footer Structural Analysis
                 </h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800/80 space-y-1.5">
                         <div class="flex items-center justify-between">
-                            <span class="font-bold text-emerald-400 text-[11px] uppercase tracking-wider font-mono">&lt;header&gt; / &lt;nav&gt; Component</span>
+                            <span class="font-bold text-emerald-400 text-[11px] uppercase tracking-wider font-mono">&lt;header&gt; / &lt;nav&gt; Tag</span>
                             <span id="status-header-tag" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono"></span>
                         </div>
                         <p id="desc-header-tag" class="text-gray-300 text-[11px] leading-relaxed"></p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800/80 space-y-1.5">
                         <div class="flex items-center justify-between">
-                            <span class="font-bold text-emerald-400 text-[11px] uppercase tracking-wider font-mono">&lt;footer&gt; Component</span>
+                            <span class="font-bold text-emerald-400 text-[11px] uppercase tracking-wider font-mono">&lt;footer&gt; Tag</span>
                             <span id="status-footer-tag" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono"></span>
                         </div>
                         <p id="desc-footer-tag" class="text-gray-300 text-[11px] leading-relaxed"></p>
@@ -442,7 +476,7 @@ UI_LAYOUT = """
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- LEFT SECTION (SEO & TAGS) -->
+                <!-- LEFT SECTION -->
                 <div class="lg:col-span-2 space-y-6">
                     
                     <!-- TITLE & CANONICAL & FAVICON -->
@@ -469,10 +503,10 @@ UI_LAYOUT = """
                         </div>
                     </div>
 
-                    <!-- META TAGS CARD -->
+                    <!-- META TAGS -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-tags text-indigo-400"></i> Meta Directives & OpenGraph Engine
+                            <i class="fa-solid fa-tags text-indigo-400"></i> Meta Directives
                         </h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                             <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800/80 space-y-1">
@@ -494,20 +528,20 @@ UI_LAYOUT = """
                         </div>
                     </div>
 
-                    <!-- HEADING TAGS (H1 TO H5) -->
+                    <!-- HEADING TAGS -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-list-ol text-indigo-400"></i> Heading Structure Analysis (H1 — H5)
+                            <i class="fa-solid fa-list-ol text-indigo-400"></i> Heading Tag Structure (H1 — H5)
                         </h3>
                         <div id="headings-container" class="space-y-3"></div>
                     </div>
 
                 </div>
 
-                <!-- RIGHT SECTION (BROKEN LINKS & WHOIS) -->
+                <!-- RIGHT SECTION -->
                 <div class="space-y-6">
                     
-                    <!-- BROKEN LINK SCANNER CARD -->
+                    <!-- BROKEN LINKS -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-link-slash text-rose-400"></i> Broken Link Diagnostics
@@ -518,7 +552,7 @@ UI_LAYOUT = """
                     <!-- WHOIS LOOKUP TERMINAL -->
                     <div class="cyber-card p-6 rounded-2xl space-y-3">
                         <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
-                            <i class="fa-solid fa-terminal text-purple-400"></i> Detailed WHOIS & DNS Intelligence
+                            <i class="fa-solid fa-terminal text-purple-400"></i> WHOIS & Host Record Intelligence
                         </h3>
                         <pre id="whois-logs" class="terminal-box p-4 rounded-xl text-[11px] text-emerald-400 whitespace-pre-wrap leading-relaxed min-h-48"></pre>
                     </div>
@@ -548,20 +582,22 @@ UI_LAYOUT = """
                 let data = await response.json();
 
                 if (data.success) {
-                    // Quick Badges
+                    // Badges Update
                     const httpsEl = document.getElementById('badge-https');
-                    if (data.is_https) {
-                        httpsEl.className = "text-xs md:text-sm font-bold text-emerald-400 mt-1 flex items-center gap-1";
-                        httpsEl.innerHTML = `<i class="fa-solid fa-lock"></i> HTTPS Secure`;
-                    } else {
-                        httpsEl.className = "text-xs md:text-sm font-bold text-rose-400 mt-1 flex items-center gap-1";
-                        httpsEl.innerHTML = `<i class="fa-solid fa-unlock"></i> HTTP Insecure`;
-                    }
+                    httpsEl.className = data.is_https ? "text-xs md:text-sm font-bold text-emerald-400 mt-1" : "text-xs md:text-sm font-bold text-rose-400 mt-1";
+                    httpsEl.innerText = data.is_https ? "HTTPS Secure" : "HTTP Insecure";
+
+                    const cmsEl = document.getElementById('badge-cms');
+                    cmsEl.innerText = data.is_wordpress ? "WordPress" : "Custom Stack";
+
+                    const respEl = document.getElementById('badge-responsive');
+                    respEl.className = data.is_responsive ? "text-xs md:text-sm font-bold text-emerald-400 mt-1" : "text-xs md:text-sm font-bold text-rose-400 mt-1";
+                    respEl.innerText = data.is_responsive ? "Mobile Friendly" : "Non-Responsive";
 
                     document.getElementById('badge-latency').innerText = `${data.latency} ms`;
                     document.getElementById('badge-ip').innerText = data.ip_address;
 
-                    // Header & Footer Layout Details
+                    // Header/Footer Details
                     const hf = data.header_footer;
                     document.getElementById('status-header-tag').className = hf.has_header ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded" : "bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded";
                     document.getElementById('status-header-tag').innerText = hf.has_header ? "Present" : "Missing";
@@ -572,28 +608,32 @@ UI_LAYOUT = """
                     document.getElementById('desc-footer-tag').innerText = hf.footer_desc;
 
                     document.getElementById('seo-hf-summary').innerHTML = `<i class="fa-solid fa-circle-info text-indigo-400"></i> <span>${hf.seo_impact}</span>`;
-                    document.getElementById('badge-structure').innerText = (hf.has_header && hf.has_footer) ? "Fully Validated" : "Partial Semantic";
 
-                    // Render File Cards (Sitemap, Robots, Manifest)
-                    const renderFileCard = (cardId, badgeId, descId, seoId, fileObj) => {
+                    // Render File Cards
+                    const renderFileCard = (cardId, badgeId, descId, expId, btnId, fileObj) => {
                         const card = document.getElementById(cardId);
                         const badge = document.getElementById(badgeId);
+                        const btn = document.getElementById(btnId);
+
                         if (fileObj.exists) {
-                            card.className = "p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-2";
+                            card.className = "p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-3 flex flex-col justify-between";
                             badge.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
                             badge.innerText = `Found (${fileObj.code})`;
                         } else {
-                            card.className = "p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 space-y-2";
+                            card.className = "p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 space-y-3 flex flex-col justify-between";
                             badge.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30";
                             badge.innerText = `Missing (${fileObj.code})`;
                         }
                         document.getElementById(descId).innerText = fileObj.summary;
-                        document.getElementById(seoId).innerText = fileObj.seo_impact;
+                        document.getElementById(expId).innerText = fileObj.explanation;
+                        
+                        btn.href = fileObj.url;
+                        btn.innerText = fileObj.fix_action;
                     };
 
-                    renderFileCard('card-sitemap', 'badge-sitemap', 'desc-sitemap', 'seo-sitemap', data.files.sitemap);
-                    renderFileCard('card-robots', 'badge-robots', 'desc-robots', 'seo-robots', data.files.robots);
-                    renderFileCard('card-manifest', 'badge-manifest', 'desc-manifest', 'seo-manifest', data.files.manifest);
+                    renderFileCard('card-sitemap', 'badge-sitemap', 'desc-sitemap', 'exp-sitemap', 'btn-sitemap', data.files.sitemap);
+                    renderFileCard('card-robots', 'badge-robots', 'desc-robots', 'exp-robots', 'btn-robots', data.files.robots);
+                    renderFileCard('card-manifest', 'badge-manifest', 'desc-manifest', 'exp-manifest', 'btn-manifest', data.files.manifest);
 
                     // Metadata
                     document.getElementById('val-title').innerText = data.title;
@@ -606,7 +646,7 @@ UI_LAYOUT = """
                     document.getElementById('og-title').innerText = data.meta.og_title;
                     document.getElementById('og-desc').innerText = data.meta.og_description;
 
-                    // Heading Hierarchy Mapping
+                    // Heading Hierarchy
                     const headingsContainer = document.getElementById('headings-container');
                     headingsContainer.innerHTML = '';
                     Object.keys(data.headings).forEach(tag => {
@@ -627,7 +667,7 @@ UI_LAYOUT = """
                     const linksContainer = document.getElementById('broken-links-container');
                     linksContainer.innerHTML = '';
                     if (data.broken_links.length === 0) {
-                        linksContainer.innerHTML = `<div class="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center text-emerald-400 text-xs font-medium"><i class="fa-solid fa-circle-check mr-1.5"></i> All Anchor Links Operational!</div>`;
+                        linksContainer.innerHTML = `<div class="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center text-emerald-400 text-xs font-medium"><i class="fa-solid fa-circle-check mr-1.5"></i> All Anchor Links Working!</div>`;
                     } else {
                         data.broken_links.forEach(l => {
                             linksContainer.innerHTML += `
