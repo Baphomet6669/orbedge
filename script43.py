@@ -30,11 +30,17 @@ def send_single_email(smtp_host, smtp_port, username, password, sender_email, re
         msg.attach(MIMEText(body, "plain"))
         msg.attach(MIMEText(f"<div>{body.replace('\n', '<br>')}</div>", "html"))
 
-        # Connect to SMTP Server
-        server = smtplib.SMTP(smtp_host, int(smtp_port), timeout=10)
-        if use_tls:
-            server.starttls()
+        port = int(smtp_port)
+
+        # Port 465 uses SSL directly, Port 587 uses STARTTLS
+        if port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, port, timeout=12)
+        else:
+            server = smtplib.SMTP(smtp_host, port, timeout=12)
+            if use_tls:
+                server.starttls()
         
+        # Login if credentials provided
         if username and password:
             server.login(username, password)
 
@@ -42,6 +48,8 @@ def send_single_email(smtp_host, smtp_port, username, password, sender_email, re
         server.quit()
 
         return {"email": recipient, "status": "Success", "error": None}
+    except smtplib.SMTPAuthenticationError:
+        return {"email": recipient, "status": "Failed", "error": "Auth Failed: Incorrect Username/App Password"}
     except Exception as e:
         return {"email": recipient, "status": "Failed", "error": str(e)}
 
@@ -59,7 +67,6 @@ def handle_bulk_mail():
     if 'logged_in' not in session:
         return jsonify({"error": "Unauthorized Terminal"}), 401
 
-    # Form parameters
     smtp_host = request.form.get('smtp_host', '').strip()
     smtp_port = request.form.get('smtp_port', '587').strip()
     username = request.form.get('username', '').strip()
@@ -73,7 +80,10 @@ def handle_bulk_mail():
     if not all([smtp_host, smtp_port, sender_email, subject, body, recipients_raw]):
         return jsonify({"success": False, "message": "All required parameters must be provided."})
 
-    # Parse recipients list
+    # If username is empty, fallback to sender_email
+    if not username:
+        username = sender_email
+
     raw_list = [e.strip() for e in re.split(r'[\n,;]+', recipients_raw) if e.strip()]
     valid_recipients = list(set([e for e in raw_list if validate_email(e)]))
 
@@ -84,8 +94,7 @@ def handle_bulk_mail():
     success_count = 0
     failed_count = 0
 
-    # ThreadPool execution for fast concurrent sending
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
             executor.submit(
                 send_single_email,
@@ -159,7 +168,7 @@ UI_LAYOUT = """
         <div class="cyber-card p-6 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-4 border-l-4 border-l-indigo-500 shadow-2xl">
             <div>
                 <h1 class="text-xl md:text-2xl font-bold heading-font tracking-wide text-white flex items-center gap-2">
-                    <i class="fa-paper-plane text-indigo-400"></i> Enterprise Bulk Email Dispatcher
+                    <i class="fa-solid fa-paper-plane text-indigo-400"></i> Enterprise Bulk Email Dispatcher
                 </h1>
                 <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Multi-Threaded SMTP Delivery • Logs • Diagnostics</p>
             </div>
@@ -188,41 +197,41 @@ UI_LAYOUT = """
                         </div>
                         <div>
                             <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Sender Email</label>
-                            <input type="email" id="sender_email" required placeholder="sender@example.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                            <input type="email" id="sender_email" required placeholder="sender@gmail.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Username</label>
-                            <input type="text" id="username" placeholder="Optional" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Username (Email ID)</label>
+                            <input type="text" id="username" placeholder="Leave empty to use Sender Email" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                         <div>
-                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Password / App Password</label>
-                            <input type="password" id="password" placeholder="Optional" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                            <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">App Password</label>
+                            <input type="password" id="password" required placeholder="Google App Password (16 digits)" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                         </div>
                     </div>
 
                     <div class="flex items-center gap-2 pt-1">
                         <input type="checkbox" id="use_tls" checked class="w-4 h-4 rounded bg-gray-950 border-gray-800 text-indigo-600 focus:ring-0">
-                        <label for="use_tls" class="text-xs text-gray-300 font-medium">Use STARTTLS Encryption</label>
+                        <label for="use_tls" class="text-xs text-gray-300 font-medium">Use STARTTLS Encryption (Port 587)</label>
                     </div>
 
                     <h3 class="text-sm font-bold text-white heading-font border-b border-gray-800 pb-2 pt-2">Message & Recipients</h3>
 
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Subject</label>
-                        <input type="text" id="subject" required placeholder="Newsletter Header" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
+                        <input type="text" id="subject" required placeholder="Subject line" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono">
                     </div>
 
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Recipient Emails (Comma or line separated)</label>
-                        <textarea id="recipients" rows="4" required placeholder="user1@domain.com, user2@domain.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono"></textarea>
+                        <textarea id="recipients" rows="3" required placeholder="user1@example.com, user2@example.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono"></textarea>
                     </div>
 
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Email Body Content</label>
-                        <textarea id="body" rows="5" required placeholder="Write your message here..." class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono"></textarea>
+                        <textarea id="body" rows="4" required placeholder="Write your message here..." class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-white font-mono"></textarea>
                     </div>
 
                     <button type="submit" id="submitBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase font-bold tracking-wider py-3.5 rounded-xl cursor-pointer transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
@@ -256,13 +265,13 @@ UI_LAYOUT = """
                     <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
                         <i class="fa-solid fa-terminal text-purple-400"></i> Dispatch Execution Log
                     </h3>
-                    <pre id="summaryLog" class="terminal-box p-4 rounded-xl text-[11px] text-emerald-400 whitespace-pre-wrap leading-relaxed min-h-48">Waiting for job submission...</pre>
+                    <pre id="summaryLog" class="terminal-box p-4 rounded-xl text-[11px] text-emerald-400 whitespace-pre-wrap leading-relaxed min-h-40">Waiting for job submission...</pre>
                 </div>
 
                 <!-- INDIVIDUAL RESULTS LIST -->
                 <div class="cyber-card p-6 rounded-2xl space-y-3">
                     <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
-                        <i class="fa-solid fa-list-check text-indigo-400"></i> Recipient Status
+                        <i class="fa-solid fa-list-check text-indigo-400"></i> Recipient Status & Errors
                     </h3>
                     <div id="resultsContainer" class="space-y-2 max-h-64 overflow-y-auto font-mono text-xs">
                         <p class="text-gray-500 italic text-[11px]">No emails processed yet.</p>
@@ -306,11 +315,17 @@ UI_LAYOUT = """
                     const container = document.getElementById('resultsContainer');
                     container.innerHTML = '';
                     data.results.forEach(r => {
-                        const statusColor = r.status === 'Success' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10';
+                        const isOk = r.status === 'Success';
+                        const statusColor = isOk ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10';
+                        const errDetails = r.error ? `<div class="text-[10px] text-rose-300 mt-1 font-sans">${r.error}</div>` : '';
+                        
                         container.innerHTML += `
-                            <div class="p-2 bg-gray-950 border ${statusColor} rounded-lg flex items-center justify-between text-[11px]">
-                                <span class="truncate">${r.email}</span>
-                                <span class="font-bold uppercase">${r.status}</span>
+                            <div class="p-2.5 bg-gray-950 border ${statusColor} rounded-xl text-[11px]">
+                                <div class="flex items-center justify-between font-mono">
+                                    <span class="truncate font-semibold">${r.email}</span>
+                                    <span class="font-bold uppercase shrink-0 ml-2">${r.status}</span>
+                                </div>
+                                ${errDetails}
                             </div>
                         `;
                     });
