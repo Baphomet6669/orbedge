@@ -24,7 +24,7 @@ blueprints_to_load = [
     ('script41', 'script41_bp', '/script41'),
     ('script42', 'script42_bp', '/script42'),
     ('script43', 'script43_bp', '/script43'),
-    
+    ('script44', 'script44_bp', '/script44'),
 ]
 
 for module_name, bp_name, prefix in blueprints_to_load:
@@ -116,6 +116,7 @@ def home():
             <a href="/script41/" class="btn"> Site Scraper </a>
             <a href="/script42/" class="btn"> keyword tools</a>
             <a href="/script43/" class="btn"> bulk mail</a>
+            <a href="/script44/" class="btn"> Pdf edit</a>
         </div>
     </body>
     </html>
