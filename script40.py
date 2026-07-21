@@ -209,7 +209,6 @@ def run_toolkit_audit():
         html_body = res.text
         response_headers = dict(res.headers)
         
-        # Track Redirect Chains
         redirect_chain = []
         if res.history:
             for resp in res.history:
@@ -221,7 +220,7 @@ def run_toolkit_audit():
             "message": f"Target endpoint unreachable or connection timed out: {str(e)}"
         })
 
-    # 1. CMS & Tech Stack Detection
+    # CMS Detection
     html_lower = html_body.lower()
     is_wordpress = any(i in html_lower for i in ["wp-content", "wp-includes", "wp-json", "wordpress", "elementor", "yoast"])
     is_shopify = "shopify" in html_lower or "cdn.shopify.com" in html_lower
@@ -231,11 +230,9 @@ def run_toolkit_audit():
     
     cms_detected = "WordPress CMS" if is_wordpress else ("Shopify E-Commerce" if is_shopify else ("Wix Builder" if is_wix else ("Next.js / React" if is_react else ("Nuxt / Vue" if is_vue else "Custom HTML/JS Stack"))))
 
-    # 2. Viewport & Mobile Responsiveness
     has_viewport = bool(re.search(r'<meta\s+name=["\']viewport["\']', html_body, re.IGNORECASE))
     is_responsive = has_viewport or ("@media" in html_lower)
 
-    # 3. Comprehensive Metadata
     title_match = re.search(r'<title[^>]*>(.*?)</title>', html_body, re.IGNORECASE | re.DOTALL)
     page_title = title_match.group(1).strip() if title_match else "No Title Tag Found"
 
@@ -246,7 +243,6 @@ def run_toolkit_audit():
     og_image = extract_meta_tag(html_body, "og:image") or "Not Specified"
     twitter_card = extract_meta_tag(html_body, "twitter:card") or "Not Specified"
 
-    # 4. Heading Tag Structure
     headings = {}
     for i in range(1, 6):
         tag_name = f"h{i}"
@@ -257,37 +253,30 @@ def run_toolkit_audit():
             "sample": clean_matches[:3]
         }
 
-    # 5. Canonical & Favicon
     canonical_match = re.search(r'<link\s+rel=["\']canonical["\']\s+href=["\']([^"\']*)["\']', html_body, re.IGNORECASE)
     canonical_url = canonical_match.group(1) if canonical_match else "Not Configured"
 
     favicon_match = re.search(r'<link\s+rel=["\'](?:shortcut )?icon["\']\s+href=["\']([^"\']*)["\']', html_body, re.IGNORECASE)
     favicon_url = urllib.parse.urljoin(full_url, favicon_match.group(1)) if favicon_match else f"{base_scheme_url}/favicon.ico"
 
-    # 6. Detailed File Structure & Resource Breakdown (Exact File Counts & Sizes)
     css_urls = list(set(re.findall(r'<link\s+[^>]*rel=["\']stylesheet["\']\s+[^>]*href=["\']([^"\']+)["\']', html_body, re.IGNORECASE)))
     js_urls = list(set(re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', html_body, re.IGNORECASE)))
     img_urls = list(set(re.findall(r'<img\s+[^>]*src=["\']([^"\']+)["\']', html_body, re.IGNORECASE)))
 
     html_size_kb = round(len(html_body.encode('utf-8')) / 1024, 2)
-    
-    # Calculate approximate external assets total weight
     css_count = len(css_urls)
     js_count = len(js_urls)
     img_count = len(img_urls)
 
-    # Word count and Text-to-HTML Ratio
     raw_text = re.sub(r'<[^>]+>', ' ', html_body)
     raw_text = re.sub(r'\s+', ' ', raw_text).strip()
     word_count = len(raw_text.split())
     text_size_kb = round(len(raw_text.encode('utf-8')) / 1024, 2)
     text_ratio = round((text_size_kb / (html_size_kb or 1)) * 100, 2)
 
-    # Images missing ALT tag
     img_tags = re.findall(r'<img\s+[^>]*>', html_body, re.IGNORECASE)
     missing_alt_count = sum(1 for img in img_tags if not re.search(r'alt=["\'][^"\']+["\']', img, re.IGNORECASE))
 
-    # 7. Comprehensive Internationalization (International SEO Audit)
     html_lang_match = re.search(r'<html[^>]*\s+lang=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
     html_dir_match = re.search(r'<html[^>]*\s+dir=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
     
@@ -296,66 +285,66 @@ def run_toolkit_audit():
 
     hreflangs = re.findall(r'<link\s+[^>]*hreflang=["\']([^"\']+)["\']\s+[^>]*href=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
     if not hreflangs:
-        # Reverse attribute order regex
         hreflangs = re.findall(r'<link\s+[^>]*href=["\']([^"\']+)["\']\s+[^>]*hreflang=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
         hreflangs = [(lang, href) for href, lang in hreflangs]
 
     hreflang_list = [{"lang": lang, "url": href} for lang, href in hreflangs[:10]]
 
-    # 8. Detailed Backlink & Outbound Domain Deep Analysis
-    all_anchors = re.findall(r'<a\s+([^>]+)>', html_body, re.IGNORECASE)
-    internal_links_list = []
-    external_backlinks_list = []
-    nofollow_count = 0
-    dofollow_count = 0
+    # =========================================================================
+    # SEMRUSH-STYLE DEDICATED BACKLINK AUDIT ENGINE
+    # =========================================================================
+    anchor_tags = re.findall(r'<a\s+(.*?)>(.*?)</a>', html_body, re.IGNORECASE | re.DOTALL)
+    
+    semrush_backlinks = []
+    internal_links = []
+    external_domains_counter = Counter()
+    
+    dofollow_cnt = 0
+    nofollow_cnt = 0
 
-    external_domain_counter = Counter()
-
-    for anchor_attrs in all_anchors:
-        href_match = re.search(r'href=["\']([^"\']*)["\']', anchor_attrs, re.IGNORECASE)
-        rel_match = re.search(r'rel=["\']([^"\']*)["\']', anchor_attrs, re.IGNORECASE)
-        rel_val = rel_match.group(1).lower() if rel_match else ""
-
-        is_nofollow = "nofollow" in rel_val
-        if is_nofollow:
-            nofollow_count += 1
+    for attrs, inner_text in anchor_tags:
+        href_m = re.search(r'href=["\']([^"\']*)["\']', attrs, re.IGNORECASE)
+        rel_m = re.search(r'rel=["\']([^"\']*)["\']', attrs, re.IGNORECASE)
+        
+        rel_val = rel_m.group(1).lower() if rel_m else "dofollow"
+        if "nofollow" in rel_val:
+            link_type = "NoFollow"
+            nofollow_cnt += 1
         else:
-            dofollow_count += 1
+            link_type = "DoFollow"
+            dofollow_cnt += 1
 
-        if href_match:
-            href = href_match.group(1).strip()
-            if href.startswith('http://') or href.startswith('https://'):
-                parsed_href = urllib.parse.urlparse(href)
-                target_netloc = parsed_href.netloc.lower()
-                if target_netloc and domain not in target_netloc:
-                    external_domain_counter[target_netloc] += 1
-                    if len(external_backlinks_list) < 20:
-                        external_backlinks_list.append({
-                            "url": href,
-                            "domain": target_netloc,
-                            "rel": rel_val or "dofollow"
-                        })
+        clean_anchor = re.sub(r'<[^>]+>', '', inner_text).strip() or "[Image/Icon Anchor]"
+
+        if href_m:
+            target_link = href_m.group(1).strip()
+            if target_link.startswith(('http://', 'https://')):
+                p = urllib.parse.urlparse(target_link)
+                ext_domain = p.netloc.lower()
+                
+                if ext_domain and domain not in ext_domain:
+                    external_domains_counter[ext_domain] += 1
+                    semrush_backlinks.append({
+                        "source_domain": domain,
+                        "target_url": target_link,
+                        "target_domain": ext_domain,
+                        "anchor_text": clean_anchor[:40],
+                        "link_type": link_type
+                    })
                 else:
-                    if len(internal_links_list) < 10:
-                        internal_links_list.append(href)
-            elif href.startswith('/') or href.startswith('#'):
-                if len(internal_links_list) < 10:
-                    internal_links_list.append(href)
+                    internal_links.append(target_link)
+            elif target_link.startswith('/') or target_link.startswith('#'):
+                internal_links.append(target_link)
 
-    total_internal_links = len(internal_links_list)
-    total_external_links = sum(external_domain_counter.values())
-    unique_outbound_domains = len(external_domain_counter)
+    total_backlinks_found = len(semrush_backlinks)
+    unique_referring_domains = len(external_domains_counter)
+    top_referring_domains = [{"domain": dom, "count": cnt} for dom, cnt in external_domains_counter.most_common(10)]
 
-    top_outbound_domains = [{"domain": dom, "count": cnt} for dom, cnt in external_domain_counter.most_common(10)]
-
-    # Social Profiles Linked
     social_platforms = ['facebook.com', 'twitter.com', 'x.com', 'linkedin.com', 'instagram.com', 'youtube.com', 'pinterest.com', 'github.com']
-    social_links_found = [dom for dom in external_domain_counter if any(sp in dom for sp in social_platforms)]
+    social_links_found = [dom for dom in external_domains_counter if any(sp in dom for sp in social_platforms)]
 
-    # 9. Keyword Density
     keyword_density = extract_keywords_density(raw_text)
 
-    # 10. Core File Inspections Concurrent Execution
     sitemap_url = f"{base_scheme_url}/sitemap.xml"
     robots_url = f"{base_scheme_url}/robots.txt"
     manifest_url = f"{base_scheme_url}/manifest.json"
@@ -369,8 +358,7 @@ def run_toolkit_audit():
         robots_info = f_robots.result()
         manifest_info = f_manifest.result()
 
-    # 11. Broken Link Check (Sampled Direct URLs)
-    sample_links = [b["url"] for b in external_backlinks_list[:6]]
+    sample_links = [b["target_url"] for b in semrush_backlinks[:6]]
     broken_links = []
     
     def check_link(link):
@@ -384,7 +372,6 @@ def run_toolkit_audit():
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         executor.map(check_link, sample_links)
 
-    # 12. Security & Server Infrastructure
     is_https = full_url.startswith("https://")
     server_header = response_headers.get('Server', 'Protected / CDN')
     content_encoding = response_headers.get('Content-Encoding', 'Standard / Uncompressed')
@@ -399,7 +386,6 @@ def run_toolkit_audit():
 
     geo_data = fetch_ip_geolocation(ip_address)
 
-    # 13. Health Score Calculation (Accurate Weights)
     score = 100
     if not is_https: score -= 15
     if not is_responsive: score -= 15
@@ -458,14 +444,14 @@ def run_toolkit_audit():
             "missing_alt_images": missing_alt_count,
             "word_count": word_count
         },
-        "backlinks_and_links": {
-            "internal_count": total_internal_links,
-            "external_count": total_external_links,
-            "dofollow_count": dofollow_count,
-            "nofollow_count": nofollow_count,
-            "unique_outbound_domains": unique_outbound_domains,
-            "top_outbound_domains": top_outbound_domains,
-            "external_backlinks_list": external_backlinks_list,
+        "backlinks_semrush": {
+            "total_backlinks_count": total_backlinks_found,
+            "unique_referring_domains": unique_referring_domains,
+            "internal_links_count": len(internal_links),
+            "dofollow_count": dofollow_cnt,
+            "nofollow_count": nofollow_cnt,
+            "top_referring_domains": top_referring_domains,
+            "backlinks_list": semrush_backlinks[:30],
             "social_links": social_links_found
         },
         "keyword_density": keyword_density,
@@ -480,7 +466,7 @@ def run_toolkit_audit():
     })
 
 # =========================================================================
-# ULTRA MODERN NEON CYBERPUNK UI LAYOUT WITH CHART.JS & FIXED PDF EXPORT
+# ULTRA MODERN NEON CYBERPUNK UI LAYOUT WITH FIXED PDF & SEMRUSH BACKLINKS
 # =========================================================================
 UI_LAYOUT = """
 <!DOCTYPE html>
@@ -497,7 +483,7 @@ UI_LAYOUT = """
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #030712; color: #f3f4f6; }
         .heading-font { font-family: 'Space Grotesk', sans-serif; }
-        .cyber-card { background: rgba(17, 24, 39, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
+        .cyber-card { background: rgba(17, 24, 39, 0.95); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
         .glow-indigo { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.25); }
     </style>
 </head>
@@ -514,7 +500,7 @@ UI_LAYOUT = """
                 <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Enterprise Backlinks • File Structure • International SEO • Security Engine</p>
             </div>
             <div class="flex items-center gap-3" id="header-actions">
-                <button id="pdfBtn" onclick="exportPDFReport()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2.5 rounded-xl font-bold transition shadow-lg flex items-center gap-2 cursor-pointer">
+                <button id="pdfBtn" onclick="exportPDFReport()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition shadow-lg flex items-center gap-2 cursor-pointer">
                     <i class="fa-solid fa-file-pdf"></i> Download Full PDF Report
                 </button>
                 <a href="/" class="bg-gray-900 border border-gray-800 text-gray-300 text-xs px-4 py-2.5 rounded-xl hover:bg-gray-800 transition font-medium">
@@ -600,17 +586,72 @@ UI_LAYOUT = """
                 </div>
             </div>
 
+            <!-- ========================================================= -->
+            <!-- DEDICATED SEMRUSH STYLE BACKLINK ANALYTICS SECTION -->
+            <!-- ========================================================= -->
+            <div class="cyber-card p-6 rounded-2xl space-y-6 border-2 border-indigo-500/30">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-gray-800 pb-4 gap-4">
+                    <div>
+                        <h3 class="font-bold text-base text-white heading-font flex items-center gap-2">
+                            <i class="fa-solid fa-link text-indigo-400"></i> SEMrush Backlink Audit Engine
+                        </h3>
+                        <p class="text-xs text-gray-400 mt-0.5">Complete Outbound & Inbound Linking Profile Analysis</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span id="stat-total-backlinks" class="bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 font-mono text-xs px-3 py-1.5 rounded-lg font-bold">Total Backlinks: 0</span>
+                        <span id="stat-referring-domains" class="bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 font-mono text-xs px-3 py-1.5 rounded-lg font-bold">Referring Domains: 0</span>
+                    </div>
+                </div>
+
+                <!-- TOP REFERRING DOMAINS GRID -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-3">
+                        <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider">Top Referring Domains</h4>
+                        <div id="semrush-top-domains" class="space-y-2 max-h-52 overflow-y-auto pr-1"></div>
+                    </div>
+                    <div class="space-y-3">
+                        <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider">Link Attributes Breakdown</h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="p-3 bg-gray-950 border border-emerald-500/30 rounded-xl text-center">
+                                <span class="text-[10px] text-gray-400 uppercase">DoFollow Links</span>
+                                <h4 id="stat-dofollow" class="text-lg font-bold text-emerald-400 font-mono">0</h4>
+                            </div>
+                            <div class="p-3 bg-gray-950 border border-rose-500/30 rounded-xl text-center">
+                                <span class="text-[10px] text-gray-400 uppercase">NoFollow Links</span>
+                                <h4 id="stat-nofollow" class="text-lg font-bold text-rose-400 font-mono">0</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BACKLINKS TABLE LIST (SEMRUSH STYLE) -->
+                <div class="space-y-3">
+                    <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider">Discovered External Backlinks & Target URLs</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs font-mono">
+                            <thead class="bg-gray-950 text-gray-400 uppercase text-[10px]">
+                                <tr>
+                                    <th class="p-3 border-b border-gray-800">Target URL / Destination</th>
+                                    <th class="p-3 border-b border-gray-800">Target Domain</th>
+                                    <th class="p-3 border-b border-gray-800">Anchor Text</th>
+                                    <th class="p-3 border-b border-gray-800 text-center">Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="semrush-backlinks-table" class="divide-y divide-gray-800/60 bg-gray-950/50"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- VISUAL CHARTS ROW -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <!-- CHART 1: LINKS & BACKLINKS -->
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Link Distribution (Internal vs Outbound)</h3>
+                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Link Distribution (Internal vs External)</h3>
                     <div class="w-full max-w-[280px] h-48">
                         <canvas id="linksChart"></canvas>
                     </div>
                 </div>
 
-                <!-- CHART 2: KEYWORD DENSITY -->
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
                     <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Top Keyword Density Frequencies</h3>
                     <div class="w-full max-w-[320px] h-48">
@@ -618,31 +659,10 @@ UI_LAYOUT = """
                     </div>
                 </div>
 
-                <!-- CHART 3: ASSET & PAGE WEIGHT -->
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center col-span-1 md:col-span-2 lg:col-span-1">
                     <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">File Assets Count Breakdown</h3>
                     <div class="w-full max-w-[280px] h-48">
                         <canvas id="assetsChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- BACKLINKS & OUTBOUND DOMAINS DEEP INSPECTION -->
-            <div class="cyber-card p-6 rounded-2xl space-y-4">
-                <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center justify-between">
-                    <span class="flex items-center gap-2"><i class="fa-solid fa-link text-indigo-400"></i> Outbound Backlinks & Target Linking Domains</span>
-                    <span id="badge-outbound-count" class="bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs px-2.5 py-0.5 rounded font-mono font-bold">0 Domains</span>
-                </h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- TOP LINKED DOMAINS -->
-                    <div class="space-y-3">
-                        <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider">Top Linked External Domains</h4>
-                        <div id="outbound-domains-list" class="space-y-2 max-h-56 overflow-y-auto"></div>
-                    </div>
-                    <!-- SAMPLE EXTERNAL BACKLINKS DETECTED -->
-                    <div class="space-y-3">
-                        <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider">External Backlink URLs & Rel Directives</h4>
-                        <div id="external-backlinks-list" class="space-y-2 max-h-56 overflow-y-auto"></div>
                     </div>
                 </div>
             </div>
@@ -653,7 +673,6 @@ UI_LAYOUT = """
                     <span class="flex items-center gap-2"><i class="fa-solid fa-file-code text-indigo-400"></i> Search Engine Core Files & Directives</span>
                 </h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <!-- SITEMAP CARD -->
                     <div id="card-sitemap" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
                         <div class="space-y-2">
                             <div class="flex items-center justify-between">
@@ -666,7 +685,6 @@ UI_LAYOUT = """
                         <a id="btn-sitemap" target="_blank" class="w-full text-center bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Sitemap File</a>
                     </div>
 
-                    <!-- ROBOTS CARD -->
                     <div id="card-robots" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
                         <div class="space-y-2">
                             <div class="flex items-center justify-between">
@@ -679,7 +697,6 @@ UI_LAYOUT = """
                         <a id="btn-robots" target="_blank" class="w-full text-center bg-cyan-600/20 border border-cyan-500/30 hover:bg-cyan-600/40 text-cyan-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Robots.txt File</a>
                     </div>
 
-                    <!-- MANIFEST CARD -->
                     <div id="card-manifest" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
                         <div class="space-y-2">
                             <div class="flex items-center justify-between">
@@ -696,10 +713,7 @@ UI_LAYOUT = """
 
             <!-- DETAILED TECHNICAL & METADATA GRID -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- LEFT COLUMN -->
                 <div class="lg:col-span-2 space-y-6">
-                    
-                    <!-- TITLE & CANONICAL & FAVICON -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <div class="flex items-center justify-between border-b border-gray-800 pb-3">
                             <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
@@ -723,7 +737,6 @@ UI_LAYOUT = """
                         </div>
                     </div>
 
-                    <!-- INTERNATIONAL SEO TAGS (HREFLANG) -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-language text-pink-400"></i> International SEO & Hreflang Mapping
@@ -731,7 +744,6 @@ UI_LAYOUT = """
                         <div id="hreflang-container" class="space-y-2 text-xs"></div>
                     </div>
 
-                    <!-- META TAGS & SOCIAL METADATA -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-share-nodes text-indigo-400"></i> Meta Directives & OpenGraph Social Media
@@ -756,7 +768,6 @@ UI_LAYOUT = """
                         </div>
                     </div>
 
-                    <!-- HEADING TAGS HIERARCHY -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-list-ol text-indigo-400"></i> Heading Structure (H1 — H5)
@@ -766,10 +777,7 @@ UI_LAYOUT = """
 
                 </div>
 
-                <!-- RIGHT COLUMN -->
                 <div class="space-y-6">
-                    
-                    <!-- SOCIAL MEDIA PROFILES DETECTED -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-hashtag text-pink-400"></i> Linked Social Media Profiles
@@ -777,7 +785,6 @@ UI_LAYOUT = """
                         <div id="social-container" class="space-y-2"></div>
                     </div>
 
-                    <!-- BROKEN LINKS DIAGNOSTICS -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-link-slash text-rose-400"></i> Link Health & HTTP Diagnostics
@@ -785,7 +792,6 @@ UI_LAYOUT = """
                         <div id="broken-links-container" class="space-y-2 max-h-64 overflow-y-auto"></div>
                     </div>
 
-                    <!-- REDIRECT TRAIL -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-route text-amber-400"></i> HTTP Redirect Chain Tracker
@@ -793,7 +799,6 @@ UI_LAYOUT = """
                         <div id="redirects-container" class="space-y-2 font-mono text-xs"></div>
                     </div>
 
-                    <!-- RECOMMENDED FIX ACTIONS -->
                     <div class="cyber-card p-6 rounded-2xl space-y-4 border-l-4 border-l-emerald-500">
                         <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
                             <i class="fa-solid fa-wrench text-emerald-400"></i> Automated Actionable Fixes
@@ -834,10 +839,8 @@ UI_LAYOUT = """
                 let data = await response.json();
 
                 if (data.success) {
-                    // Update Health Score Chart
                     renderHealthChart(data.score);
 
-                    // Quick Badges
                     const httpsEl = document.getElementById('badge-https');
                     httpsEl.className = data.is_https ? "text-xs md:text-sm font-bold text-emerald-400 mt-1" : "text-xs md:text-sm font-bold text-rose-400 mt-1";
                     httpsEl.innerText = data.is_https ? "HTTPS Secure" : "HTTP Insecure";
@@ -861,35 +864,44 @@ UI_LAYOUT = """
                     document.getElementById('badge-assets').innerText = `${data.files_structure.html_size_kb} KB HTML`;
                     document.getElementById('badge-assets-count').innerText = `${data.files_structure.css_files_count} CSS / ${data.files_structure.js_files_count} JS / ${data.files_structure.images_count} Imgs`;
 
-                    // Render Outbound Backlinks
-                    document.getElementById('badge-outbound-count').innerText = `${data.backlinks_and_links.unique_outbound_domains} Unique Domains`;
-                    
-                    const outboundContainer = document.getElementById('outbound-domains-list');
-                    outboundContainer.innerHTML = '';
-                    if (data.backlinks_and_links.top_outbound_domains.length === 0) {
-                        outboundContainer.innerHTML = '<p class="text-xs text-gray-500 italic">No external domains linked.</p>';
+                    // RENDER SEMRUSH BACKLINKS SECTION
+                    document.getElementById('stat-total-backlinks').innerText = `Total Backlinks: ${data.backlinks_semrush.total_backlinks_count}`;
+                    document.getElementById('stat-referring-domains').innerText = `Referring Domains: ${data.backlinks_semrush.unique_referring_domains}`;
+                    document.getElementById('stat-dofollow').innerText = data.backlinks_semrush.dofollow_count;
+                    document.getElementById('stat-nofollow').innerText = data.backlinks_semrush.nofollow_count;
+
+                    const topDomContainer = document.getElementById('semrush-top-domains');
+                    topDomContainer.innerHTML = '';
+                    if (data.backlinks_semrush.top_referring_domains.length === 0) {
+                        topDomContainer.innerHTML = '<p class="text-xs text-gray-500 italic">No external domains pointing from target.</p>';
                     } else {
-                        data.backlinks_and_links.top_outbound_domains.forEach(d => {
-                            outboundContainer.innerHTML += `
+                        data.backlinks_semrush.top_referring_domains.forEach(d => {
+                            topDomContainer.innerHTML += `
                                 <div class="p-2 bg-gray-950 border border-gray-800 rounded-lg flex items-center justify-between text-xs font-mono">
                                     <span class="text-indigo-300 truncate">${d.domain}</span>
-                                    <span class="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded text-[10px] font-bold">${d.count} links</span>
+                                    <span class="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded text-[10px] font-bold">${d.count} backlinks</span>
                                 </div>
                             `;
                         });
                     }
 
-                    const backlinksContainer = document.getElementById('external-backlinks-list');
-                    backlinksContainer.innerHTML = '';
-                    if (data.backlinks_and_links.external_backlinks_list.length === 0) {
-                        backlinksContainer.innerHTML = '<p class="text-xs text-gray-500 italic">No outbound backlinks discovered.</p>';
+                    const tableBody = document.getElementById('semrush-backlinks-table');
+                    tableBody.innerHTML = '';
+                    if (data.backlinks_semrush.backlinks_list.length === 0) {
+                        tableBody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500 italic">No external backlinks found on page.</td></tr>';
                     } else {
-                        data.backlinks_and_links.external_backlinks_list.forEach(bl => {
-                            backlinksContainer.innerHTML += `
-                                <div class="p-2 bg-gray-950 border border-gray-800 rounded-lg flex items-center justify-between text-xs gap-2">
-                                    <span class="text-gray-300 font-mono truncate text-[11px]" title="${bl.url}">${bl.url}</span>
-                                    <span class="bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded text-[10px] font-mono shrink-0">${bl.rel}</span>
-                                </div>
+                        data.backlinks_semrush.backlinks_list.forEach(bl => {
+                            tableBody.innerHTML += `
+                                <tr>
+                                    <td class="p-3 text-indigo-300 font-mono text-[11px] truncate max-w-[250px]" title="${bl.target_url}">${bl.target_url}</td>
+                                    <td class="p-3 text-gray-300 font-mono">${bl.target_domain}</td>
+                                    <td class="p-3 text-gray-400 italic">${bl.anchor_text}</td>
+                                    <td class="p-3 text-center">
+                                        <span class="${bl.link_type === 'DoFollow' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30'} border px-2 py-0.5 rounded text-[10px] font-bold">
+                                            ${bl.link_type}
+                                        </span>
+                                    </td>
+                                </tr>
                             `;
                         });
                     }
@@ -911,7 +923,7 @@ UI_LAYOUT = """
                     }
 
                     // Render Charts
-                    renderLinksChart(data.backlinks_and_links.internal_count, data.backlinks_and_links.external_count, data.backlinks_and_links.nofollow_count);
+                    renderLinksChart(data.backlinks_semrush.internal_links_count, data.backlinks_semrush.total_backlinks_count);
                     renderKeywordsChart(data.keyword_density);
                     renderAssetsChart(data.files_structure);
 
@@ -951,10 +963,10 @@ UI_LAYOUT = """
                     // Social Links
                     const socialContainer = document.getElementById('social-container');
                     socialContainer.innerHTML = '';
-                    if (data.backlinks_and_links.social_links.length === 0) {
+                    if (data.backlinks_semrush.social_links.length === 0) {
                         socialContainer.innerHTML = '<p class="text-xs text-gray-500 italic">No social media profiles detected in links.</p>';
                     } else {
-                        data.backlinks_and_links.social_links.forEach(dom => {
+                        data.backlinks_semrush.social_links.forEach(dom => {
                             socialContainer.innerHTML += `
                                 <div class="p-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-pink-400 flex items-center gap-2">
                                     <i class="fa-solid fa-share-nodes"></i> ${dom}
@@ -995,12 +1007,9 @@ UI_LAYOUT = """
                         });
                     }
 
-                    // Automated Recommendations
                     renderActionableFixes(data);
-
                     document.getElementById('report-timestamp').innerText = data.timestamp;
 
-                    // Unhide Dashboard & Show PDF Button
                     dashboard.classList.remove('hidden');
                     pdfBtn.classList.remove('hidden');
                 } else {
@@ -1031,7 +1040,6 @@ UI_LAYOUT = """
             }
             document.getElementById(descId).innerText = fileObj.summary;
             document.getElementById(expId).innerText = fileObj.explanation;
-            
             btn.href = fileObj.url;
             btn.innerText = fileObj.fix_action;
         }
@@ -1061,17 +1069,17 @@ UI_LAYOUT = """
             });
         }
 
-        function renderLinksChart(internal, external, nofollow) {
+        function renderLinksChart(internal, external) {
             const ctx = document.getElementById('linksChart').getContext('2d');
             if (linksChart) linksChart.destroy();
 
             linksChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Internal Links', 'Outbound Links', 'Nofollow Links'],
+                    labels: ['Internal Links', 'External Backlinks'],
                     datasets: [{
-                        data: [internal, external, nofollow],
-                        backgroundColor: ['#6366f1', '#06b6d4', '#f43f5e'],
+                        data: [internal, external],
+                        backgroundColor: ['#6366f1', '#06b6d4'],
                         borderWidth: 0
                     }]
                 },
@@ -1157,34 +1165,36 @@ UI_LAYOUT = """
             }
         }
 
-        // FIXED PDF EXPORT FUNCTION
+        // PERFECTED INSTANT PDF EXPORT FUNCTION
         function exportPDFReport() {
             const element = document.getElementById('reportable-content');
             const inputPanel = document.getElementById('input-panel');
             const headerActions = document.getElementById('header-actions');
             
-            // Hide control panels temporarily for crisp clean PDF
-            inputPanel.style.display = 'none';
-            headerActions.style.display = 'none';
+            // Hide input UI temporarily
+            inputPanel.style.visibility = 'hidden';
+            headerActions.style.visibility = 'hidden';
 
             const opt = {
-                margin:       [0.3, 0.3, 0.3, 0.3],
-                filename:     `OrbitEdge_Site_Audit_${Date.now()}.pdf`,
-                image:        { type: 'jpeg', quality: 0.98 },
+                margin:       [0.2, 0.2, 0.2, 0.2],
+                filename:     `OrbitEdge_SEO_Audit_${Date.now()}.pdf`,
+                image:        { type: 'jpeg', quality: 1.0 },
                 html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#030712' },
-                jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+                jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
             };
 
+            window.scrollTo(0,0);
             html2pdf().set(opt).from(element).save().then(() => {
-                inputPanel.style.display = 'block';
-                headerActions.style.display = 'flex';
+                inputPanel.style.visibility = 'visible';
+                headerActions.style.visibility = 'visible';
             }).catch(err => {
-                console.error('PDF Generation error:', err);
-                inputPanel.style.display = 'block';
-                headerActions.style.display = 'flex';
+                console.error('PDF Generation Error:', err);
+                inputPanel.style.visibility = 'visible';
+                headerActions.style.visibility = 'visible';
             });
         }
     </script>
 </body>
 </html>
 """
+
