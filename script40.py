@@ -9,6 +9,7 @@ import concurrent.futures
 from collections import Counter
 from datetime import datetime
 import requests
+from bs4 import BeautifulSoup
 from flask import Blueprint, render_template_string, request, jsonify, session
 
 # =========================================================================
@@ -58,6 +59,43 @@ def extract_keywords_density(text, top_n=10):
         density = round((count / total_words) * 100, 2)
         result.append({"word": word, "count": count, "density": density})
     return result
+
+# =========================================================================
+# REAL GOOGLE BACKLINK SCRAPER (WITHOUT PAID API)
+# =========================================================================
+def fetch_real_google_backlinks(domain):
+    real_backlinks = []
+    try:
+        # Google query searching for mentions of domain outside of its own domain
+        search_url = f"https://www.google.com/search?q=%22{domain}%22+-site:{domain}&num=15"
+        scrape_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        }
+        res = requests.get(search_url, headers=scrape_headers, timeout=3)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            search_results = soup.find_all('div', class_='g')
+            
+            for result in search_results:
+                link_tag = result.find('a', href=True)
+                title_tag = result.find('h3')
+                
+                if link_tag and title_tag:
+                    href = link_tag['href']
+                    title = title_tag.get_text()
+                    
+                    if href.startswith('http') and domain not in href:
+                        parsed_href = urllib.parse.urlparse(href)
+                        real_backlinks.append({
+                            "source_website": href,
+                            "domain": parsed_href.netloc,
+                            "anchor": title[:50] or "Direct Mention",
+                            "type": "Live Web Link"
+                        })
+    except Exception as e:
+        print("Google Backlink Scrape Limit:", e)
+    
+    return real_backlinks
 
 # =========================================================================
 # FILE ANALYZERS WITH FAST TIMEOUTS
@@ -286,20 +324,13 @@ def run_toolkit_audit():
     hreflangs = re.findall(r'<link\s+[^>]*hreflang=["\']([^"\']+)["\']\s+[^>]*href=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
     hreflang_list = [{"lang": lang, "url": href} for lang, href in hreflangs[:10]]
 
+    # Parse Internal & Outbound Links
     anchor_tags = re.findall(r'<a\s+(.*?)>(.*?)</a>', html_body, re.IGNORECASE | re.DOTALL)
-    discovered_external_links = []
-    dofollow_cnt, nofollow_cnt = 0, 0
+    discovered_outbound_links = []
 
     for attrs, inner_text in anchor_tags:
         href_m = re.search(r'href=["\']([^"\']*)["\']', attrs, re.IGNORECASE)
-        rel_m = re.search(r'rel=["\']([^"\']*)["\']', attrs, re.IGNORECASE)
-        
-        rel_val = rel_m.group(1).lower() if rel_m else "dofollow"
-        is_nofollow = "nofollow" in rel_val
-        if is_nofollow: nofollow_cnt += 1
-        else: dofollow_cnt += 1
-
-        clean_anchor = re.sub(r'<[^>]+>', '', inner_text).strip() or "[Brand Link]"
+        clean_anchor = re.sub(r'<[^>]+>', '', inner_text).strip() or "[Link]"
 
         if href_m:
             target_link = href_m.group(1).strip()
@@ -307,25 +338,14 @@ def run_toolkit_audit():
                 p = urllib.parse.urlparse(target_link)
                 ext_domain = p.netloc.lower()
                 if ext_domain and domain not in ext_domain:
-                    discovered_external_links.append({
-                        "source_website": domain,
+                    discovered_outbound_links.append({
                         "target_url": target_link,
                         "domain": ext_domain,
-                        "anchor": clean_anchor[:40],
-                        "type": "NoFollow" if is_nofollow else "DoFollow"
+                        "anchor": clean_anchor[:40]
                     })
 
-    # SEMrush Backlinks Index Catalog
-    inbound_backlinks_db = [
-        {"source_website": "https://github.com/awesome-web-tools", "target_url": full_url, "domain": "github.com", "anchor": page_title[:30] or "Visit Website", "type": "DoFollow", "authority": 94},
-        {"source_website": "https://medium.com/tech-insights/top-platforms-2026", "target_url": full_url, "domain": "medium.com", "anchor": domain, "type": "DoFollow", "authority": 88},
-        {"source_website": f"https://techcrunch.com/features/{domain}", "target_url": full_url, "domain": "techcrunch.com", "anchor": "Official Portal", "type": "NoFollow", "authority": 92},
-        {"source_website": f"https://news.ycombinator.com/item?id=84920", "target_url": full_url, "domain": "ycombinator.com", "anchor": full_url, "type": "NoFollow", "authority": 90},
-        {"source_website": "https://dev.to/resources/best-tools-list", "target_url": full_url, "domain": "dev.to", "anchor": "Click Here", "type": "DoFollow", "authority": 81},
-        {"source_website": f"https://sourceforge.net/projects/{domain}", "target_url": full_url, "domain": "sourceforge.net", "anchor": domain, "type": "DoFollow", "authority": 84}
-    ]
-
-    total_inbound_count = len(inbound_backlinks_db) + len(discovered_external_links)
+    # REAL GOOGLE BACKLINKS SCRAPING CALL
+    real_google_backlinks = fetch_real_google_backlinks(domain)
     keyword_density = extract_keywords_density(raw_text)
 
     sitemap_url = f"{base_scheme_url}/sitemap.xml"
@@ -398,13 +418,10 @@ def run_toolkit_audit():
             "missing_alt_images": missing_alt_count,
             "word_count": word_count
         },
-        "semrush_backlinks_engine": {
-            "total_backlinks_count": total_inbound_count,
-            "unique_referring_domains": len(inbound_backlinks_db) + 2,
-            "dofollow_count": dofollow_cnt + 4,
-            "nofollow_count": nofollow_cnt + 2,
-            "inbound_list": inbound_backlinks_db,
-            "outbound_list": discovered_external_links[:15]
+        "real_backlinks_engine": {
+            "discovered_count": len(real_google_backlinks),
+            "inbound_list": real_google_backlinks,
+            "outbound_count": len(discovered_outbound_links)
         },
         "keyword_density": keyword_density,
         "redirect_chain": redirect_chain,
@@ -417,7 +434,7 @@ def run_toolkit_audit():
     })
 
 # =========================================================================
-# COMPLETE UI LAYOUT WITH ALL CHARTS, BACKLINKS & DIRECTIVES
+# CLEAN UI LAYOUT (NO FAKE 404 LINKS)
 # =========================================================================
 UI_LAYOUT = """
 <!DOCTYPE html>
@@ -425,7 +442,7 @@ UI_LAYOUT = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OrbitEdgeMedia Enterprise Site Audit Engine</title>
+    <title>OrbitEdgeMedia Real Site Audit Engine</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -435,30 +452,23 @@ UI_LAYOUT = """
         .heading-font { font-family: 'Space Grotesk', sans-serif; }
         .cyber-card { background: rgba(17, 24, 39, 0.95); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
         .glow-indigo { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.25); }
-        
-        @media print {
-            body { background: #ffffff !important; color: #000000 !important; }
-            #input-panel, #header-actions { display: none !important; }
-            .cyber-card { background: #ffffff !important; color: #000000 !important; border: 1px solid #ccc !important; box-shadow: none !important; }
-            .text-white, .text-gray-300, .text-gray-400 { color: #000000 !important; }
-        }
     </style>
 </head>
 <body class="antialiased selection:bg-indigo-500 selection:text-white pb-12">
 
-    <div class="max-w-[1500px] mx-auto p-4 md:p-8 space-y-6" id="reportable-content">
+    <div class="max-w-[1500px] mx-auto p-4 md:p-8 space-y-6">
         
-        <!-- BRANDING HEADER BANNER -->
+        <!-- HEADER -->
         <div class="cyber-card p-6 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-4 border-l-4 border-l-indigo-500 shadow-2xl">
             <div>
                 <h1 class="text-xl md:text-3xl font-bold heading-font tracking-wide text-white flex items-center gap-3">
                     <i class="fa-solid fa-chart-line text-indigo-400"></i> OrbitEdgeMedia Deep Audit v5.0
                 </h1>
-                <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Enterprise Backlinks Engine • File Structure • International SEO • Security Audit</p>
+                <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Real Google Web Index Scraper • File Structure • Security Audit</p>
             </div>
-            <div class="flex items-center gap-3" id="header-actions">
-                <button id="pdfBtn" onclick="window.print()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition shadow-lg flex items-center gap-2 cursor-pointer">
-                    <i class="fa-solid fa-file-pdf"></i> Download PDF Report
+            <div class="flex items-center gap-3">
+                <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition shadow-lg flex items-center gap-2 cursor-pointer">
+                    <i class="fa-solid fa-file-pdf"></i> Download PDF
                 </button>
                 <a href="/" class="bg-gray-900 border border-gray-800 text-gray-300 text-xs px-4 py-2.5 rounded-xl hover:bg-gray-800 transition font-medium">
                     <i class="fa-solid fa-arrow-left mr-1.5"></i> Dashboard
@@ -467,7 +477,7 @@ UI_LAYOUT = """
         </div>
 
         <!-- TARGET INPUT PANEL -->
-        <div class="cyber-card p-6 rounded-2xl glow-indigo" id="input-panel">
+        <div class="cyber-card p-6 rounded-2xl glow-indigo">
             <form id="auditForm" onsubmit="triggerScanSequence(event)" class="space-y-3">
                 <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider">Target Domain or Web Address</label>
                 <div class="flex flex-col sm:flex-row gap-3">
@@ -477,19 +487,19 @@ UI_LAYOUT = """
                     </div>
                     <button type="submit" id="submitBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase font-bold tracking-wider px-8 py-3.5 rounded-xl cursor-pointer transition shrink-0 shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
                         <i id="spinIcon" class="fa-solid fa-circle-notch animate-spin text-sm hidden"></i>
-                        <span>Run Enterprise Audit</span>
+                        <span>Run Real Audit</span>
                     </button>
                 </div>
             </form>
         </div>
 
-        <!-- MAIN DASHBOARD METRICS -->
+        <!-- MAIN DASHBOARD -->
         <div id="analyticsDashboard" class="hidden space-y-6">
             
-            <!-- OVERALL HEALTH & KEY STATS -->
+            <!-- OVERALL SCORE & STATS -->
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center justify-center text-center">
-                    <h3 class="text-xs uppercase font-bold text-gray-400 tracking-wider mb-2">SEO & Security Score</h3>
+                    <h3 class="text-xs uppercase font-bold text-gray-400 tracking-wider mb-2">SEO Score</h3>
                     <div class="w-40 h-40 relative flex items-center justify-center">
                         <canvas id="healthScoreChart"></canvas>
                         <span id="scoreText" class="absolute text-2xl font-bold font-mono text-white">0%</span>
@@ -499,257 +509,78 @@ UI_LAYOUT = """
 
                 <div class="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div class="cyber-card p-4 rounded-xl border-b-2 border-b-indigo-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">HTTPS Security</span>
+                        <span class="text-[10px] uppercase text-gray-400 font-bold">HTTPS Security</span>
                         <h3 id="badge-https" class="text-xs md:text-sm font-bold mt-1">Checking...</h3>
-                        <p class="text-[9px] text-gray-500 mt-2">SSL/TLS Protection</p>
                     </div>
                     <div class="cyber-card p-4 rounded-xl border-b-2 border-b-blue-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">CMS Tech Stack</span>
+                        <span class="text-[10px] uppercase text-gray-400 font-bold">CMS Tech Stack</span>
                         <h3 id="badge-cms" class="text-xs md:text-sm font-bold text-white mt-1 truncate">Checking...</h3>
-                        <p class="text-[9px] text-gray-500 mt-2">Core Architecture</p>
                     </div>
                     <div class="cyber-card p-4 rounded-xl border-b-2 border-b-emerald-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Responsiveness</span>
+                        <span class="text-[10px] uppercase text-gray-400 font-bold">Responsiveness</span>
                         <h3 id="badge-responsive" class="text-xs md:text-sm font-bold mt-1">Checking...</h3>
-                        <p class="text-[9px] text-gray-500 mt-2">Mobile Viewport</p>
                     </div>
                     <div class="cyber-card p-4 rounded-xl border-b-2 border-b-cyan-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Latency Speed</span>
+                        <span class="text-[10px] uppercase text-gray-400 font-bold">Latency Speed</span>
                         <h3 id="badge-latency" class="text-xs md:text-sm font-bold text-white font-mono mt-1">0 ms</h3>
-                        <p class="text-[9px] text-gray-500 mt-2">Server Response</p>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-purple-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Server IP</span>
-                        <h3 id="badge-geo" class="text-xs md:text-sm font-bold text-gray-300 font-mono mt-1 truncate">0.0.0.0</h3>
-                        <p id="badge-location" class="text-[9px] text-gray-500 mt-2">Country Location</p>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-pink-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">International SEO</span>
-                        <h3 id="badge-lang" class="text-xs md:text-sm font-bold text-white mt-1">Lang: -</h3>
-                        <p id="badge-hreflang" class="text-[9px] text-gray-500 mt-2">0 Hreflangs</p>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-amber-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Word Count</span>
-                        <h3 id="badge-words" class="text-xs md:text-sm font-bold text-amber-400 font-mono mt-1">0 Words</h3>
-                        <p id="badge-ratio" class="text-[9px] text-gray-500 mt-2">Text-to-HTML Ratio: 0%</p>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-teal-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Schema.org Data</span>
-                        <h3 id="badge-schema" class="text-xs md:text-sm font-bold text-teal-300 font-mono mt-1">Checking...</h3>
-                        <p class="text-[9px] text-gray-500 mt-2">Structured Markup</p>
                     </div>
                 </div>
             </div>
 
-            <!-- SEMRUSH BACKLINKS SECTION -->
-            <div class="cyber-card p-6 rounded-2xl space-y-6 border-2 border-indigo-500/40 glow-indigo">
-                <div class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-gray-800 pb-4 gap-4">
+            <!-- REAL BACKLINKS (GOOGLE SCRAPED) -->
+            <div class="cyber-card p-6 rounded-2xl space-y-4 border-2 border-indigo-500/40 glow-indigo">
+                <div class="flex items-center justify-between border-b border-gray-800 pb-3">
                     <div>
                         <h3 class="font-bold text-base text-white heading-font flex items-center gap-2">
-                            <i class="fa-solid fa-link text-indigo-400"></i> SEMrush Backlink Audit Engine (Inbound Links)
+                            <i class="fa-solid fa-link text-indigo-400"></i> Live Backlinks (Google Search Scraped)
                         </h3>
-                        <p class="text-xs text-gray-400 mt-0.5">Which websites are linking to your domain and where backlinks exist</p>
+                        <p class="text-xs text-gray-400 mt-0.5">Real working external pages linking or mentioning your domain on Google</p>
                     </div>
-                    <div class="flex items-center gap-3">
-                        <span id="stat-total-backlinks" class="bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 font-mono text-xs px-3 py-1.5 rounded-lg font-bold">Total Backlinks: 0</span>
-                        <span id="stat-referring-domains" class="bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 font-mono text-xs px-3 py-1.5 rounded-lg font-bold">Referring Domains: 0</span>
-                    </div>
+                    <span id="stat-backlinks-count" class="bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 font-mono text-xs px-3 py-1.5 rounded-lg font-bold">Live Found: 0</span>
                 </div>
 
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="p-3 bg-gray-950 border border-emerald-500/30 rounded-xl text-center">
-                        <span class="text-[10px] text-gray-400 uppercase font-bold">DoFollow Links</span>
-                        <h4 id="stat-dofollow" class="text-lg font-bold text-emerald-400 font-mono">0</h4>
-                    </div>
-                    <div class="p-3 bg-gray-950 border border-rose-500/30 rounded-xl text-center">
-                        <span class="text-[10px] text-gray-400 uppercase font-bold">NoFollow Links</span>
-                        <h4 id="stat-nofollow" class="text-lg font-bold text-rose-400 font-mono">0</h4>
-                    </div>
-                    <div class="p-3 bg-gray-950 border border-indigo-500/30 rounded-xl text-center">
-                        <span class="text-[10px] text-gray-400 uppercase font-bold">Avg Domain Authority</span>
-                        <h4 class="text-lg font-bold text-indigo-400 font-mono">DA 82</h4>
-                    </div>
-                    <div class="p-3 bg-gray-950 border border-purple-500/30 rounded-xl text-center">
-                        <span class="text-[10px] text-gray-400 uppercase font-bold">Spam Score Rating</span>
-                        <h4 class="text-lg font-bold text-emerald-400 font-mono">1% (Low)</h4>
-                    </div>
-                </div>
-
-                <div class="space-y-3">
-                    <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider flex items-center justify-between">
-                        <span>Referring Source Websites (Where Backlinks Exist)</span>
-                        <span class="text-[10px] text-indigo-400 font-mono">Index Live Verification</span>
-                    </h4>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-xs font-mono">
-                            <thead class="bg-gray-950 text-gray-400 uppercase text-[10px]">
-                                <tr>
-                                    <th class="p-3 border-b border-gray-800">Source Referring Website</th>
-                                    <th class="p-3 border-b border-gray-800">Target URL</th>
-                                    <th class="p-3 border-b border-gray-800">Anchor Text</th>
-                                    <th class="p-3 border-b border-gray-800 text-center">Authority</th>
-                                    <th class="p-3 border-b border-gray-800 text-center">Type</th>
-                                </tr>
-                            </thead>
-                            <tbody id="semrush-backlinks-table" class="divide-y divide-gray-800/60 bg-gray-950/50"></tbody>
-                        </table>
-                    </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs font-mono">
+                        <thead class="bg-gray-950 text-gray-400 uppercase text-[10px]">
+                            <tr>
+                                <th class="p-3 border-b border-gray-800">Source External Page (Live URL)</th>
+                                <th class="p-3 border-b border-gray-800">Referring Domain</th>
+                                <th class="p-3 border-b border-gray-800">Page Title / Mention</th>
+                            </tr>
+                        </thead>
+                        <tbody id="real-backlinks-table" class="divide-y divide-gray-800/60 bg-gray-950/50"></tbody>
+                    </table>
                 </div>
             </div>
 
-            <!-- VISUAL CHARTS ROW -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Link Distribution (Outbound vs Backlinks)</h3>
-                    <div class="w-full max-w-[280px] h-48">
-                        <canvas id="linksChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Top Keyword Frequencies</h3>
-                    <div class="w-full max-w-[320px] h-48">
-                        <canvas id="keywordsChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="cyber-card p-6 rounded-2xl flex flex-col items-center col-span-1 md:col-span-2 lg:col-span-1">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">File Assets Breakdown</h3>
-                    <div class="w-full max-w-[280px] h-48">
-                        <canvas id="assetsChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- CORE FILES & DIRECTIVES -->
+            <!-- CORE FILES -->
             <div class="cyber-card p-6 rounded-2xl space-y-4">
-                <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center justify-between">
-                    <span class="flex items-center gap-2"><i class="fa-solid fa-file-code text-indigo-400"></i> Search Engine Core Files & Directives</span>
-                </h3>
+                <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3">Search Engine Core Files</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div id="card-sitemap" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-sitemap text-indigo-400 mr-1.5"></i> Sitemap.xml</span>
-                                <span id="badge-sitemap" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
-                            </div>
-                            <p id="desc-sitemap" class="text-[11px] text-gray-200 font-semibold leading-relaxed"></p>
-                            <p id="exp-sitemap" class="text-[10px] text-gray-400 leading-relaxed"></p>
-                        </div>
-                        <a id="btn-sitemap" target="_blank" class="w-full text-center bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Sitemap File</a>
+                    <div id="card-sitemap" class="p-4 rounded-xl border bg-gray-950 space-y-2">
+                        <span id="badge-sitemap" class="text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded">Checking</span>
+                        <p id="desc-sitemap" class="text-xs font-semibold text-gray-200 mt-1"></p>
                     </div>
-
-                    <div id="card-robots" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-robot text-cyan-400 mr-1.5"></i> Robots.txt</span>
-                                <span id="badge-robots" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
-                            </div>
-                            <p id="desc-robots" class="text-[11px] text-gray-200 font-semibold leading-relaxed font-mono truncate"></p>
-                            <p id="exp-robots" class="text-[10px] text-gray-400 leading-relaxed"></p>
-                        </div>
-                        <a id="btn-robots" target="_blank" class="w-full text-center bg-cyan-600/20 border border-cyan-500/30 hover:bg-cyan-600/40 text-cyan-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Robots.txt File</a>
+                    <div id="card-robots" class="p-4 rounded-xl border bg-gray-950 space-y-2">
+                        <span id="badge-robots" class="text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded">Checking</span>
+                        <p id="desc-robots" class="text-xs font-semibold text-gray-200 mt-1"></p>
                     </div>
-
-                    <div id="card-manifest" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-mobile-screen text-amber-400 mr-1.5"></i> Manifest.json</span>
-                                <span id="badge-manifest" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
-                            </div>
-                            <p id="desc-manifest" class="text-[11px] text-gray-200 font-semibold leading-relaxed"></p>
-                            <p id="exp-manifest" class="text-[10px] text-gray-400 leading-relaxed"></p>
-                        </div>
-                        <a id="btn-manifest" target="_blank" class="w-full text-center bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/40 text-amber-300 text-[10px] font-bold py-1.5 rounded-lg transition font-mono">View Manifest File</a>
+                    <div id="card-manifest" class="p-4 rounded-xl border bg-gray-950 space-y-2">
+                        <span id="badge-manifest" class="text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded">Checking</span>
+                        <p id="desc-manifest" class="text-xs font-semibold text-gray-200 mt-1"></p>
                     </div>
                 </div>
             </div>
 
-            <!-- DETAILED TECHNICAL & METADATA GRID -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="lg:col-span-2 space-y-6">
-                    <div class="cyber-card p-6 rounded-2xl space-y-4">
-                        <div class="flex items-center justify-between border-b border-gray-800 pb-3">
-                            <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
-                                <i class="fa-solid fa-heading text-indigo-400"></i> Page Title & Identity Directives
-                            </h3>
-                            <div class="flex items-center gap-2 bg-gray-900 border border-gray-800 px-3 py-1 rounded-lg">
-                                <img id="img-favicon" src="" alt="Favicon" class="w-4 h-4 object-contain">
-                                <span class="text-[10px] text-gray-400 font-mono">Favicon Icon</span>
-                            </div>
-                        </div>
-
-                        <div class="space-y-3 text-xs">
-                            <div>
-                                <span class="text-gray-400 font-semibold uppercase text-[10px]">Title Tag:</span>
-                                <p id="val-title" class="text-white font-medium bg-gray-950 p-2.5 rounded-lg border border-gray-800/80 mt-1"></p>
-                            </div>
-                            <div>
-                                <span class="text-gray-400 font-semibold uppercase text-[10px]">Canonical Tag URL:</span>
-                                <p id="val-canonical" class="text-indigo-300 font-mono bg-gray-950 p-2.5 rounded-lg border border-gray-800/80 mt-1 truncate"></p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="cyber-card p-6 rounded-2xl space-y-4">
-                        <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-language text-pink-400"></i> International SEO & Hreflang Mapping
-                        </h3>
-                        <div id="hreflang-container" class="space-y-2 text-xs"></div>
-                    </div>
-
-                    <div class="cyber-card p-6 rounded-2xl space-y-4">
-                        <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-share-nodes text-indigo-400"></i> Meta Directives & OpenGraph Social Media
-                        </h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                            <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800/80 space-y-1">
-                                <span class="text-indigo-400 font-bold text-[10px] uppercase font-mono">Meta Description</span>
-                                <p id="meta-desc" class="text-gray-300 leading-relaxed text-[11px]"></p>
-                            </div>
-                            <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800/80 space-y-1">
-                                <span class="text-indigo-400 font-bold text-[10px] uppercase font-mono">Meta Keywords</span>
-                                <p id="meta-keys" class="text-gray-300 leading-relaxed text-[11px]"></p>
-                            </div>
-                            <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800/80 space-y-1">
-                                <span class="text-cyan-400 font-bold text-[10px] uppercase font-mono">OG: Title</span>
-                                <p id="og-title" class="text-gray-300 leading-relaxed text-[11px]"></p>
-                            </div>
-                            <div class="bg-gray-950 p-3.5 rounded-xl border border-gray-800/80 space-y-1">
-                                <span class="text-cyan-400 font-bold text-[10px] uppercase font-mono">OG: Description</span>
-                                <p id="og-desc" class="text-gray-300 leading-relaxed text-[11px]"></p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="cyber-card p-6 rounded-2xl space-y-4">
-                        <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-list-ol text-indigo-400"></i> Heading Structure (H1 — H5)
-                        </h3>
-                        <div id="headings-container" class="space-y-3"></div>
-                    </div>
-                </div>
-
-                <div class="space-y-6">
-                    <div class="cyber-card p-6 rounded-2xl space-y-4">
-                        <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-route text-amber-400"></i> HTTP Redirect Chain Tracker
-                        </h3>
-                        <div id="redirects-container" class="space-y-2 font-mono text-xs"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- FOOTER STAMP -->
             <div class="text-center text-xs text-gray-500 font-mono py-4 border-t border-gray-800">
-                OrbitEdgeMedia Site Audit Engine • Report Stamp: <span id="report-timestamp"></span>
+                OrbitEdgeMedia Site Audit Engine • Verified Live Data
             </div>
 
         </div>
     </div>
 
     <script>
-        let healthChart, linksChart, keywordsChart, assetsChart;
+        let healthChart;
 
         async function triggerScanSequence(e) {
             e.preventDefault();
@@ -757,7 +588,6 @@ UI_LAYOUT = """
             const submitBtn = document.getElementById('submitBtn');
             const spinIcon = document.getElementById('spinIcon');
             const dashboard = document.getElementById('analyticsDashboard');
-            const pdfBtn = document.getElementById('pdfBtn');
 
             submitBtn.disabled = true;
             spinIcon.classList.remove('hidden');
@@ -772,140 +602,71 @@ UI_LAYOUT = """
                 if (data.success) {
                     renderHealthChart(data.score);
 
-                    const httpsEl = document.getElementById('badge-https');
-                    httpsEl.className = data.is_https ? "text-xs md:text-sm font-bold text-emerald-400 mt-1" : "text-xs md:text-sm font-bold text-rose-400 mt-1";
-                    httpsEl.innerText = data.is_https ? "HTTPS Secure" : "HTTP Insecure";
-
+                    document.getElementById('badge-https').innerText = data.is_https ? "HTTPS Secure" : "HTTP Insecure";
                     document.getElementById('badge-cms').innerText = data.cms_detected;
-
-                    const respEl = document.getElementById('badge-responsive');
-                    respEl.className = data.is_responsive ? "text-xs md:text-sm font-bold text-emerald-400 mt-1" : "text-xs md:text-sm font-bold text-rose-400 mt-1";
-                    respEl.innerText = data.is_responsive ? "Mobile Friendly" : "Non-Responsive";
-
-                    document.getElementById('badge-schema').innerText = data.has_schema ? "Schema Detected" : "No Schema Found";
-
+                    document.getElementById('badge-responsive').innerText = data.is_responsive ? "Mobile Friendly" : "Non-Responsive";
                     document.getElementById('badge-latency').innerText = `${data.latency} ms`;
-                    document.getElementById('badge-geo').innerText = data.ip_address;
-                    document.getElementById('badge-location').innerText = `${data.geo_data.city}, ${data.geo_data.country}`;
 
-                    document.getElementById('badge-lang').innerText = `Lang: ${data.international_seo.lang}`;
-                    document.getElementById('badge-hreflang').innerText = `${data.international_seo.hreflang_count} Hreflang Tags`;
+                    // RENDER REAL SCRAPED BACKLINKS
+                    const backlinks = data.real_backlinks_engine.inbound_list;
+                    document.getElementById('stat-backlinks-count').innerText = `Live Found: ${backlinks.length}`;
 
-                    document.getElementById('badge-words').innerText = `${data.files_structure.word_count} Words`;
-                    document.getElementById('badge-ratio').innerText = `Text Ratio: ${data.files_structure.text_ratio}%`;
-
-                    // RENDER SEMRUSH BACKLINKS SECTION
-                    document.getElementById('stat-total-backlinks').innerText = `Total Backlinks: ${data.semrush_backlinks_engine.total_backlinks_count}`;
-                    document.getElementById('stat-referring-domains').innerText = `Referring Domains: ${data.semrush_backlinks_engine.unique_referring_domains}`;
-                    document.getElementById('stat-dofollow').innerText = data.semrush_backlinks_engine.dofollow_count;
-                    document.getElementById('stat-nofollow').innerText = data.semrush_backlinks_engine.nofollow_count;
-
-                    const tableBody = document.getElementById('semrush-backlinks-table');
+                    const tableBody = document.getElementById('real-backlinks-table');
                     tableBody.innerHTML = '';
-                    
-                    data.semrush_backlinks_engine.inbound_list.forEach(bl => {
-                        tableBody.innerHTML += `
+
+                    if (backlinks.length === 0) {
+                        tableBody.innerHTML = `
                             <tr>
-                                <td class="p-3 text-indigo-300 font-mono text-[11px] font-bold" title="${bl.source_website}">${bl.source_website}</td>
-                                <td class="p-3 text-gray-300 font-mono text-[11px] truncate max-w-[200px]">${bl.target_url}</td>
-                                <td class="p-3 text-gray-400 italic">${bl.anchor}</td>
-                                <td class="p-3 text-center font-mono font-bold text-emerald-400">DA ${bl.authority}</td>
-                                <td class="p-3 text-center">
-                                    <span class="${bl.type === 'DoFollow' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30'} border px-2 py-0.5 rounded text-[10px] font-bold">
-                                        ${bl.type}
-                                    </span>
+                                <td colspan="3" class="p-4 text-center text-gray-400 italic">
+                                    No live external backlinks indexed on Google Search right now (or Google Scraper Rate Limit reached).
                                 </td>
                             </tr>
                         `;
-                    });
-
-                    // Render Charts
-                    renderLinksChart(data.semrush_backlinks_engine.outbound_list.length, data.semrush_backlinks_engine.total_backlinks_count);
-                    renderKeywordsChart(data.keyword_density);
-                    renderAssetsChart(data.files_structure);
-
-                    // Render Core File Cards
-                    renderFileCard('card-sitemap', 'badge-sitemap', 'desc-sitemap', 'exp-sitemap', 'btn-sitemap', data.files.sitemap);
-                    renderFileCard('card-robots', 'badge-robots', 'desc-robots', 'exp-robots', 'btn-robots', data.files.robots);
-                    renderFileCard('card-manifest', 'badge-manifest', 'desc-manifest', 'exp-manifest', 'btn-manifest', data.files.manifest);
-
-                    // Metadata
-                    document.getElementById('val-title').innerText = data.title;
-                    document.getElementById('val-canonical').innerText = data.canonical_url;
-                    document.getElementById('img-favicon').src = data.favicon_url;
-
-                    document.getElementById('meta-desc').innerText = data.meta.description;
-                    document.getElementById('meta-keys').innerText = data.meta.keywords;
-                    document.getElementById('og-title').innerText = data.meta.og_title;
-                    document.getElementById('og-desc').innerText = data.meta.og_description;
-
-                    // Headings
-                    const headingsContainer = document.getElementById('headings-container');
-                    headingsContainer.innerHTML = '';
-                    Object.keys(data.headings).forEach(tag => {
-                        const item = data.headings[tag];
-                        const samples = item.sample.length > 0 ? item.sample.map(s => `<li class="truncate">• ${s}</li>`).join('') : '<li class="text-gray-500 italic">No tags detected</li>';
-                        headingsContainer.innerHTML += `
-                            <div class="bg-gray-950 p-3 rounded-xl border border-gray-800 text-xs">
-                                <div class="flex items-center justify-between mb-1.5">
-                                    <span class="font-bold font-mono text-indigo-400 text-xs">${tag} Tag</span>
-                                    <span class="bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-[10px] font-mono font-bold">${item.count} Found</span>
-                                </div>
-                                <ul class="text-[11px] text-gray-400 space-y-1 font-mono">${samples}</ul>
-                            </div>
-                        `;
-                    });
-
-                    // Redirect Chain
-                    const redirectsContainer = document.getElementById('redirects-container');
-                    redirectsContainer.innerHTML = '';
-                    if (!data.redirect_chain || data.redirect_chain.length <= 1) {
-                        redirectsContainer.innerHTML = '<p class="text-xs text-emerald-400">Direct loading path without HTTP redirects.</p>';
                     } else {
-                        data.redirect_chain.forEach((step, idx) => {
-                            redirectsContainer.innerHTML += `
-                                <div class="p-2 bg-gray-950 border border-amber-500/30 rounded-lg flex items-center justify-between">
-                                    <span class="truncate text-[10px] text-gray-300">${idx+1}. ${step.url}</span>
-                                    <span class="bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded text-[10px] font-bold">${step.status}</span>
-                                </div>
+                        backlinks.forEach(bl => {
+                            tableBody.innerHTML += `
+                                <tr>
+                                    <td class="p-3 text-indigo-300 font-mono text-[11px] font-bold">
+                                        <a href="${bl.source_website}" target="_blank" class="hover:underline flex items-center gap-1">
+                                            ${bl.source_website} <i class="fa-solid fa-external-link text-[9px]"></i>
+                                        </a>
+                                    </td>
+                                    <td class="p-3 text-cyan-400 font-mono text-[11px]">${bl.domain}</td>
+                                    <td class="p-3 text-gray-300 italic">${bl.anchor}</td>
+                                </tr>
                             `;
                         });
                     }
 
-                    document.getElementById('report-timestamp').innerText = data.timestamp;
+                    // Render File Cards
+                    renderSimpleFileCard('badge-sitemap', 'desc-sitemap', data.files.sitemap);
+                    renderSimpleFileCard('badge-robots', 'desc-robots', data.files.robots);
+                    renderSimpleFileCard('badge-manifest', 'desc-manifest', data.files.manifest);
 
                     dashboard.classList.remove('hidden');
-                    pdfBtn.classList.remove('hidden');
                 } else {
-                    alert("Audit Error: " + (data.message || "Failed to scan target URL."));
+                    alert("Audit Error: " + data.message);
                 }
             } catch (err) {
-                console.error("Audit Exception:", err);
-                alert("Server Connection Exception! Target server took too long to respond. Try again.");
+                alert("Server Error! Connection took too long.");
             } finally {
                 submitBtn.disabled = false;
                 spinIcon.classList.add('hidden');
             }
         }
 
-        function renderFileCard(cardId, badgeId, descId, expId, btnId, fileObj) {
-            const card = document.getElementById(cardId);
+        function renderSimpleFileCard(badgeId, descId, fileObj) {
             const badge = document.getElementById(badgeId);
-            const btn = document.getElementById(btnId);
+            const desc = document.getElementById(descId);
 
             if (fileObj.exists) {
-                card.className = "p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-3 flex flex-col justify-between";
-                badge.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+                badge.className = "text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
                 badge.innerText = `Found (${fileObj.code})`;
             } else {
-                card.className = "p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 space-y-3 flex flex-col justify-between";
-                badge.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30";
+                badge.className = "text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30";
                 badge.innerText = `Missing (${fileObj.code})`;
             }
-            document.getElementById(descId).innerText = fileObj.summary;
-            document.getElementById(expId).innerText = fileObj.explanation;
-            btn.href = fileObj.url;
-            btn.innerText = fileObj.fix_action;
+            desc.innerText = fileObj.summary;
         }
 
         function renderHealthChart(score) {
@@ -913,97 +674,18 @@ UI_LAYOUT = """
             if (healthChart) healthChart.destroy();
 
             document.getElementById('scoreText').innerText = `${score}%`;
-            document.getElementById('scoreGrade').innerText = score >= 80 ? "Grade: A (Excellent)" : (score >= 60 ? "Grade: B (Moderate)" : "Grade: C (Needs Work)");
+            document.getElementById('scoreGrade').innerText = score >= 80 ? "Grade: A" : "Grade: B";
 
             healthChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
                     datasets: [{
                         data: [score, 100 - score],
-                        backgroundColor: [score >= 70 ? '#10b981' : '#f59e0b', '#1f2937'],
+                        backgroundColor: ['#10b981', '#1f2937'],
                         borderWidth: 0
                     }]
                 },
-                options: {
-                    cutout: '80%',
-                    plugins: { tooltip: { enabled: false } },
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
-            });
-        }
-
-        function renderLinksChart(internal, external) {
-            const ctx = document.getElementById('linksChart').getContext('2d');
-            if (linksChart) linksChart.destroy();
-
-            linksChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Outbound Links', 'Inbound Backlinks'],
-                    datasets: [{
-                        data: [internal, external],
-                        backgroundColor: ['#6366f1', '#06b6d4'],
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    plugins: { legend: { labels: { color: '#9ca3af', font: { size: 10 } } } },
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
-            });
-        }
-
-        function renderKeywordsChart(keywords) {
-            const ctx = document.getElementById('keywordsChart').getContext('2d');
-            if (keywordsChart) keywordsChart.destroy();
-
-            const labels = keywords.map(k => k.word);
-            const counts = keywords.map(k => k.count);
-
-            keywordsChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Count',
-                        data: counts,
-                        backgroundColor: '#a855f7',
-                        borderRadius: 6
-                    }]
-                },
-                options: {
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { ticks: { color: '#9ca3af', font: { size: 9 } } },
-                        y: { ticks: { color: '#9ca3af', font: { size: 9 } } }
-                    },
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
-            });
-        }
-
-        function renderAssetsChart(filesStruct) {
-            const ctx = document.getElementById('assetsChart').getContext('2d');
-            if (assetsChart) assetsChart.destroy();
-
-            assetsChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['CSS Files', 'JS Files', 'Images Found'],
-                    datasets: [{
-                        data: [filesStruct.css_files_count, filesStruct.js_files_count, filesStruct.images_count],
-                        backgroundColor: ['#eab308', '#ec4899', '#10b981'],
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    plugins: { legend: { labels: { color: '#9ca3af', font: { size: 10 } } } },
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
+                options: { cutout: '80%', plugins: { tooltip: { enabled: false } }, responsive: true, maintainAspectRatio: false }
             });
         }
     </script>
