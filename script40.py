@@ -1,1023 +1,1025 @@
-import os
-import json
-import time
-import socket
-import ssl
-import re
-import urllib.parse
-import concurrent.futures
-from collections import Counter
-from datetime import datetime
+"""
+OrbitEdgeMedia Audit Suite - Script40.py
+Flask Blueprint for Advanced Cyber-SEO & Technical Auditing
+Production-Ready, Zero-Dependency on Paid APIs
+Author: Shivam Singh Omega Dashboard
+"""
+
+from flask import Blueprint, render_template_string, request, jsonify, session
+from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.request import urlopen, Request
 import requests
 from bs4 import BeautifulSoup
-from flask import Blueprint, render_template_string, request, jsonify, session
+import threading
+import time
+import json
+import re
+import socket
+from collections import Counter, defaultdict
+from datetime import datetime
+import hashlib
+import xml.etree.ElementTree as ET
+from io import StringIO
+import base64
 
-# =========================================================================
-# FLASK BLUEPRINT DEFINITION
-# =========================================================================
-script40_bp = Blueprint('script40', __name__)
+script40_bp = Blueprint('script40', __name__, url_prefix='/audit')
 
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-}
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-# =========================================================================
-# HELPER PARSING & CLEANING FUNCTIONS
-# =========================================================================
-def clean_domain_input(url_input):
-    url_input = url_input.strip()
-    if not url_input.startswith(('http://', 'https://')):
-        full_url = 'https://' + url_input
-    else:
-        full_url = url_input
+class AuditEngine:
+    """Core audit engine for comprehensive SEO and technical analysis"""
     
-    parsed = urllib.parse.urlparse(full_url)
-    domain = parsed.netloc or parsed.path
-    if ':' in domain:
-        domain = domain.split(':')[0]
+    def __init__(self, domain):
+        self.domain = domain.strip().lower().replace('https://', '').replace('http://', '').replace('www.', '')
+        self.clean_domain = self.domain.split('/')[0]
+        self.base_url = f"https://{self.clean_domain}"
+        self.audit_data = {}
+        self.session = requests.Session()
+        self.session.headers.update({'User-Agent': USER_AGENT})
+        self.session.timeout = 8
     
-    base_scheme_url = f"{parsed.scheme}://{domain}"
-    return domain, full_url, base_scheme_url
-
-def extract_meta_tag(html, name_or_property):
-    pattern = rf'<meta\s+(?:name|property)=["\']{re.escape(name_or_property)}["\']\s+content=["\']([^"\']*)["\']'
-    match = re.search(pattern, html, re.IGNORECASE)
-    if not match:
-        pattern_alt = rf'<meta\s+content=["\']([^"\']*)["\']\s+(?:name|property)=["\']{re.escape(name_or_property)}["\']'
-        match = re.search(pattern_alt, html, re.IGNORECASE)
-    return match.group(1) if match else None
-
-def extract_keywords_density(text, top_n=10):
-    words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
-    stop_words = {'the', 'and', 'for', 'that', 'with', 'this', 'you', 'from', 'have', 'are', 'not', 'was', 'were', 'your', 'site', 'about', 'more', 'page', 'home', 'will', 'can', 'all', 'has', 'our', 'their', 'been', 'which'}
-    filtered_words = [w for w in words if w not in stop_words]
-    total_words = len(filtered_words) or 1
-    counts = Counter(filtered_words).most_common(top_n)
+    def fetch_page(self, url, timeout=8):
+        """Fetch page with error handling"""
+        try:
+            response = self.session.get(url, timeout=timeout, allow_redirects=True)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            return None
     
-    result = []
-    for word, count in counts:
-        density = round((count / total_words) * 100, 2)
-        result.append({"word": word, "count": count, "density": density})
-    return result
-
-# =========================================================================
-# LIVE GOOGLE SEARCH & MENTION BACKLINK SCRAPER (REAL UNBOUNDED)
-# =========================================================================
-def fetch_real_live_backlinks(domain):
-    scraped_backlinks = []
-    try:
-        search_query = f"\"{domain}\" -site:{domain}"
-        encoded_query = urllib.parse.quote(search_query)
-        search_url = f"https://www.google.com/search?q={encoded_query}&num=15"
-        
-        custom_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9"
+    def get_ssl_status(self):
+        """Check SSL/HTTPS configuration"""
+        try:
+            response = self.fetch_page(self.base_url, timeout=5)
+            if response and response.url.startswith('https://'):
+                return {'ssl_enabled': True, 'certificate_valid': True}
+            else:
+                return {'ssl_enabled': False, 'certificate_valid': False}
+        except:
+            return {'ssl_enabled': False, 'certificate_valid': False}
+    
+    def detect_cms(self, html_content):
+        """Detect CMS stack from HTML headers and meta tags"""
+        cms_indicators = {
+            'WordPress': ['wp-content', 'wp-includes', 'wordpress'],
+            'Shopify': ['myshopify.com', 'shopify-cdn'],
+            'Wix': ['wix.com', 'wixstatic'],
+            'Squarespace': ['squarespace.com'],
+            'React': ['__NEXT_DATA__', '__NUXT__', 'react-app'],
+            'Next.js': ['__NEXT_DATA__', '_next/'],
+            'Vue.js': ['__nuxt__', 'vue.js'],
+            'Django': ['csrfmiddlewaretoken', 'django'],
+            'Custom HTML': []
         }
         
-        resp = requests.get(search_url, headers=custom_headers, timeout=3.5)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            blocks = soup.find_all('div', class_='g')
-            
-            for block in blocks:
-                link_el = block.find('a', href=True)
-                heading_el = block.find('h3')
-                
-                if link_el and heading_el:
-                    link_href = link_el['href']
-                    anchor_text = heading_el.get_text()
-                    
-                    if link_href.startswith('http') and domain not in link_href:
-                        parsed_href = urllib.parse.urlparse(link_href)
-                        scraped_backlinks.append({
-                            "source_website": link_href,
-                            "domain": parsed_href.netloc,
-                            "anchor": anchor_text[:60] or "Direct Mention",
-                            "type": "Live Web Index"
-                        })
-    except Exception as err:
-        print(f"[Backlink Scraper Engine] Log Notice: {err}")
+        detected = []
+        if html_content:
+            html_lower = html_content.lower()
+            for cms, indicators in cms_indicators.items():
+                for indicator in indicators:
+                    if indicator.lower() in html_lower:
+                        detected.append(cms)
+                        break
+        
+        return detected[0] if detected else 'Custom HTML'
     
-    return scraped_backlinks
-
-# =========================================================================
-# ADVANCED SITEMAP XML & CORE FILE ANALYZERS
-# =========================================================================
-def analyze_sitemap_deep(url):
-    try:
-        res = requests.get(url, timeout=3, headers=DEFAULT_HEADERS)
-        if res.status_code == 200 and ("xml" in res.headers.get("Content-Type", "").lower() or "<urlset" in res.text or "<sitemapindex" in res.text):
-            urls = re.findall(r'<loc>(.*?)</loc>', res.text, re.IGNORECASE)
-            url_count = len(urls)
-            
-            sample_urls = urls[:5]
-            seo_healthy_count = 0
-            issues = []
-
-            for u in sample_urls:
+    def get_ip_geolocation(self):
+        """Get server IP and geolocation"""
+        try:
+            ip = socket.gethostbyname(self.clean_domain)
+            try:
+                response = self.fetch_page(f"http://ip-api.com/json/{ip}?fields=country,city,isp", timeout=5)
+                if response:
+                    data = response.json()
+                    return {'ip': ip, 'country': data.get('country', 'Unknown'), 'city': data.get('city', 'Unknown'), 'isp': data.get('isp', 'Unknown')}
+            except:
+                return {'ip': ip, 'country': 'Unknown', 'city': 'Unknown', 'isp': 'Unknown'}
+        except:
+            return {'ip': 'Unknown', 'country': 'Unknown', 'city': 'Unknown', 'isp': 'Unknown'}
+    
+    def measure_speed(self):
+        """Measure page load speed"""
+        try:
+            start = time.time()
+            response = self.fetch_page(self.base_url, timeout=10)
+            latency_ms = int((time.time() - start) * 1000)
+            return latency_ms
+        except:
+            return 0
+    
+    def audit_robots_txt(self):
+        """Audit robots.txt file"""
+        try:
+            response = self.fetch_page(f"{self.base_url}/robots.txt", timeout=5)
+            if response:
+                content = response.text
+                issues = []
+                if 'disallow: /' in content.lower():
+                    issues.append('Critical: All robots blocked with Disallow: /')
+                if 'user-agent: *' not in content.lower():
+                    issues.append('Warning: No wildcard user-agent directive')
+                return {'exists': True, 'content': content[:500], 'issues': issues, 'health': 'Pass' if not issues else 'Fail'}
+            else:
+                return {'exists': False, 'content': '', 'issues': ['robots.txt not found'], 'health': 'Fail'}
+        except:
+            return {'exists': False, 'content': '', 'issues': ['Failed to fetch robots.txt'], 'health': 'Fail'}
+    
+    def audit_manifest(self):
+        """Audit PWA manifest.json"""
+        try:
+            response = self.fetch_page(f"{self.base_url}/manifest.json", timeout=5)
+            if response:
+                data = response.json()
+                issues = []
+                if 'name' not in data:
+                    issues.append('Missing app name')
+                if 'icons' not in data or not data['icons']:
+                    issues.append('Missing icons')
+                return {'exists': True, 'content': json.dumps(data, indent=2)[:500], 'issues': issues, 'health': 'Pass' if not issues else 'Warning'}
+            else:
+                return {'exists': False, 'content': '', 'issues': ['manifest.json not found (Optional)'], 'health': 'Warning'}
+        except:
+            return {'exists': False, 'content': '', 'issues': ['Failed to parse manifest.json'], 'health': 'Warning'}
+    
+    def parse_sitemap(self):
+        """Parse XML sitemap and return URLs"""
+        urls = []
+        try:
+            response = self.fetch_page(f"{self.base_url}/sitemap.xml", timeout=8)
+            if response:
                 try:
-                    chk = requests.head(u, timeout=1.5, headers=DEFAULT_HEADERS)
-                    if chk.status_code == 200:
-                        seo_healthy_count += 1
-                    else:
-                        issues.append(f"URL {u} returned HTTP status {chk.status_code}")
-                except Exception:
-                    issues.append(f"Unreachable URL in Sitemap: {u}")
-
-            is_seo_optimized = (seo_healthy_count == len(sample_urls)) and (url_count > 0)
-            status_msg = "Sitemap XML is fully active & indexed URLs are accessible." if is_seo_optimized else "Sitemap XML has broken or slow URLs."
-
-            return {
-                "exists": True,
-                "code": 200,
-                "url_count": url_count,
-                "url": url,
-                "is_seo_optimized": is_seo_optimized,
-                "sample_urls": sample_urls,
-                "issues": issues,
-                "summary": f"Valid XML Sitemap found with {url_count} URLs indexed.",
-                "explanation": status_msg,
-                "fix_code": f"""<!-- XML Sitemap Recommended Template -->
-<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>{url.replace('/sitemap.xml','')}/</loc>
-    <lastmod>{datetime.utcnow().strftime('%Y-%m-%d')}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-</urlset>"""
-            }
-        return {
-            "exists": False,
-            "code": res.status_code,
-            "url_count": 0,
-            "url": url,
-            "is_seo_optimized": False,
-            "sample_urls": [],
-            "issues": ["Sitemap file missing or non-200 HTTP code."],
-            "summary": "Sitemap XML missing or non-200 HTTP code.",
-            "explanation": "Search engines cannot systematically crawl and index site structure.",
-            "fix_code": """# Flask Dynamic Sitemap Route:
-@app.route('/sitemap.xml')
-def sitemap():
-    pages = ['/', '/about', '/contact', '/services']
-    host_base = request.host_url.rstrip('/')
-    xml = '<?xml version="1.0" encoding="UTF-8"?>\\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\\n'
-    for p in pages:
-        xml += f'  <url><loc>{host_base}{p}</loc><changefreq>weekly</changefreq></url>\\n'
-    xml += '</urlset>'
-    return Response(xml, mimetype='application/xml')"""
+                    root = ET.fromstring(response.content)
+                    namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+                    for url_elem in root.findall('.//ns:loc', namespace):
+                        if url_elem.text:
+                            urls.append(url_elem.text)
+                except:
+                    urls = []
+            return urls[:100]
+        except:
+            return []
+    
+    def check_sitemap_health(self, urls):
+        """Multi-threaded sitemap URL health check"""
+        results = {'healthy': 0, 'broken': 0, 'timeout': 0, 'details': []}
+        
+        def check_url(url):
+            try:
+                response = self.session.head(url, timeout=5, allow_redirects=True)
+                status = response.status_code
+                if status == 200:
+                    return {'url': url[:60], 'status': 200, 'health': 'Pass'}
+                else:
+                    return {'url': url[:60], 'status': status, 'health': 'Fail'}
+            except requests.exceptions.Timeout:
+                return {'url': url[:60], 'status': 'Timeout', 'health': 'Timeout'}
+            except:
+                return {'url': url[:60], 'status': 'Error', 'health': 'Error'}
+        
+        threads = []
+        lock = threading.Lock()
+        
+        for url in urls[:20]:
+            thread = threading.Thread(target=lambda u=url: self._thread_check(u, results, lock, check_url))
+            threads.append(thread)
+            thread.start()
+        
+        for thread in threads:
+            thread.join(timeout=10)
+        
+        return results
+    
+    def _thread_check(self, url, results, lock, check_func):
+        """Thread worker for URL checking"""
+        result = check_func(url)
+        with lock:
+            results['details'].append(result)
+            if result['health'] == 'Pass':
+                results['healthy'] += 1
+            elif result['health'] == 'Timeout':
+                results['timeout'] += 1
+            else:
+                results['broken'] += 1
+    
+    def get_backlinks(self):
+        """Scrape live backlink mentions from search engines"""
+        backlinks = []
+        try:
+            query = f'"{self.clean_domain}" -site:{self.clean_domain}'
+            url = f"https://www.google.com/search?q={query}&num=20"
+            
+            response = self.fetch_page(url, timeout=8)
+            if response:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                for result in soup.find_all('div', class_='g')[:15]:
+                    try:
+                        link_elem = result.find('a')
+                        if link_elem and link_elem.get('href'):
+                            source_url = link_elem.get('href', '').split('/url?q=')[1].split('&')[0] if '/url?q=' in link_elem.get('href', '') else link_elem.get('href')
+                            title = result.find('h3')
+                            title_text = title.text if title else 'No title'
+                            
+                            if source_url and self.clean_domain not in source_url:
+                                parsed = urlparse(source_url)
+                                referring_domain = parsed.netloc.replace('www.', '')
+                                anchor_text = link_elem.text if link_elem else 'Unknown'
+                                
+                                backlinks.append({
+                                    'source_url': source_url[:80],
+                                    'referring_domain': referring_domain,
+                                    'anchor_text': anchor_text[:40],
+                                    'title': title_text[:60],
+                                    'live': True,
+                                    'timestamp': datetime.now().isoformat()
+                                })
+                    except:
+                        continue
+        except:
+            pass
+        
+        return backlinks[:20]
+    
+    def analyze_page_metadata(self, html_content):
+        """Extract and analyze on-page metadata"""
+        metadata = {
+            'title': '', 'meta_description': '', 'meta_keywords': '',
+            'og_title': '', 'og_description': '', 'og_image': '',
+            'canonical': '', 'favicon': '', 'language': 'en',
+            'hreflang_tags': []
         }
-    except Exception as e:
-        return {
-            "exists": False,
-            "code": "Timeout",
-            "url_count": 0,
-            "url": url,
-            "is_seo_optimized": False,
-            "sample_urls": [],
-            "issues": [str(e)],
-            "summary": "Sitemap request timed out.",
-            "explanation": "Server didn't respond to sitemap endpoint within 3s.",
-            "fix_code": "# Ensure /sitemap.xml is routed cleanly without blocking database queries."
-        }
-
-def analyze_robots(url):
-    try:
-        res = requests.get(url, timeout=2.5, headers=DEFAULT_HEADERS)
-        if res.status_code == 200 and ("disallow" in res.text.lower() or "user-agent" in res.text.lower()):
-            content = res.text
-            is_blocking_all = bool(re.search(r'Disallow:\s*/\s*$', content, re.MULTILINE))
-            explanation = "CRITICAL: Site completely blocks crawlers!" if is_blocking_all else "Good: Robots directives allow search indexing."
+        
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            title_tag = soup.find('title')
+            metadata['title'] = title_tag.text if title_tag else ''
+            
+            for meta in soup.find_all('meta'):
+                name = meta.get('name', '').lower()
+                property_attr = meta.get('property', '').lower()
+                
+                if name == 'description':
+                    metadata['meta_description'] = meta.get('content', '')
+                elif name == 'keywords':
+                    metadata['meta_keywords'] = meta.get('content', '')
+                elif property_attr == 'og:title':
+                    metadata['og_title'] = meta.get('content', '')
+                elif property_attr == 'og:description':
+                    metadata['og_description'] = meta.get('content', '')
+                elif property_attr == 'og:image':
+                    metadata['og_image'] = meta.get('content', '')
+            
+            canonical = soup.find('link', {'rel': 'canonical'})
+            if canonical:
+                metadata['canonical'] = canonical.get('href', '')
+            
+            favicon = soup.find('link', {'rel': 'icon'}) or soup.find('link', {'rel': 'shortcut icon'})
+            if favicon:
+                metadata['favicon'] = favicon.get('href', '')
+            
+            html_tag = soup.find('html')
+            if html_tag:
+                metadata['language'] = html_tag.get('lang', 'en')
+            
+            hreflang_tags = soup.find_all('link', {'rel': 'alternate', 'hreflang': True})
+            metadata['hreflang_tags'] = [tag.get('href', '') for tag in hreflang_tags[:10]]
+        
+        except:
+            pass
+        
+        return metadata
+    
+    def analyze_headings(self, html_content):
+        """Analyze heading structure"""
+        headings = {'h1': [], 'h2': [], 'h3': [], 'h4': [], 'h5': []}
+        
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            for level in ['h1', 'h2', 'h3', 'h4', 'h5']:
+                tags = soup.find_all(level)
+                for tag in tags[:15]:
+                    headings[level].append(tag.text.strip()[:80])
+        
+        except:
+            pass
+        
+        return headings
+    
+    def analyze_content(self, html_content):
+        """Analyze content metrics"""
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            for tag in soup(['script', 'style']):
+                tag.decompose()
+            
+            text = soup.get_text()
+            words = text.split()
+            word_count = len(words)
+            
+            html_size = len(html_content)
+            text_size = len(text)
+            text_ratio = (text_size / html_size * 100) if html_size > 0 else 0
+            
+            img_tags = soup.find_all('img')
+            missing_alt_count = sum(1 for img in img_tags if not img.get('alt'))
+            
+            keyword_freq = Counter(word.lower() for word in words if len(word) > 4)
+            top_keywords = keyword_freq.most_common(10)
+            
+            css_files = len(soup.find_all('link', {'rel': 'stylesheet'}))
+            js_files = len(soup.find_all('script', {'src': True}))
             
             return {
-                "exists": True,
-                "code": 200,
-                "url": url,
-                "is_blocking_all": is_blocking_all,
-                "summary": content[:180] + ("..." if len(content) > 180 else ""),
-                "explanation": explanation,
-                "fix_code": """User-agent: *
+                'word_count': word_count,
+                'text_ratio': round(text_ratio, 2),
+                'total_images': len(img_tags),
+                'missing_alt_count': missing_alt_count,
+                'css_files': css_files,
+                'js_files': js_files,
+                'top_keywords': [{'keyword': k[0], 'count': k[1]} for k in top_keywords]
+            }
+        except:
+            return {
+                'word_count': 0, 'text_ratio': 0, 'total_images': 0,
+                'missing_alt_count': 0, 'css_files': 0, 'js_files': 0,
+                'top_keywords': []
+            }
+    
+    def track_redirects(self):
+        """Track HTTP redirect chain"""
+        redirects = []
+        try:
+            response = self.session.get(self.base_url, timeout=8, allow_redirects=False)
+            current_url = self.base_url
+            
+            for i in range(10):
+                if response.status_code in [301, 302, 303, 307, 308]:
+                    next_url = response.headers.get('Location')
+                    if next_url:
+                        redirects.append({'from': current_url[:80], 'to': next_url[:80], 'status': response.status_code})
+                        current_url = next_url
+                        response = self.session.get(current_url, timeout=8, allow_redirects=False)
+                    else:
+                        break
+                else:
+                    redirects.append({'from': current_url[:80], 'to': current_url[:80], 'status': response.status_code, 'final': True})
+                    break
+        except:
+            pass
+        
+        return redirects[:10]
+    
+    def run_full_audit(self):
+        """Execute complete audit"""
+        try:
+            page_response = self.fetch_page(self.base_url)
+            html_content = page_response.text if page_response else ''
+            
+            self.audit_data = {
+                'domain': self.clean_domain,
+                'timestamp': datetime.now().isoformat(),
+                'ssl': self.get_ssl_status(),
+                'cms': self.detect_cms(html_content),
+                'ip_geolocation': self.get_ip_geolocation(),
+                'speed_ms': self.measure_speed(),
+                'robots': self.audit_robots_txt(),
+                'manifest': self.audit_manifest(),
+                'metadata': self.analyze_page_metadata(html_content),
+                'headings': self.analyze_headings(html_content),
+                'content': self.analyze_content(html_content),
+                'sitemap_urls': self.parse_sitemap(),
+                'redirects': self.track_redirects(),
+                'backlinks': self.get_backlinks()
+            }
+            
+            if self.audit_data['sitemap_urls']:
+                self.audit_data['sitemap_health'] = self.check_sitemap_health(self.audit_data['sitemap_urls'])
+            
+            return self.audit_data
+        except Exception as e:
+            return {'error': str(e)}
+
+def generate_audit_grade(audit_data):
+    """Generate overall audit grade and summary"""
+    if 'error' in audit_data:
+        return {'grade': 'F', 'score': 0, 'issues': ['Audit failed to complete']}
+    
+    score = 100
+    issues = []
+    
+    if not audit_data.get('ssl', {}).get('ssl_enabled'):
+        score -= 20
+        issues.append('SSL/HTTPS not enabled')
+    
+    if audit_data.get('robots', {}).get('health') == 'Fail':
+        score -= 15
+        issues.append('robots.txt has critical issues')
+    
+    if audit_data.get('content', {}).get('word_count', 0) < 300:
+        score -= 10
+        issues.append('Low word count content')
+    
+    if audit_data.get('content', {}).get('missing_alt_count', 0) > 5:
+        score -= 10
+        issues.append('Multiple images missing ALT text')
+    
+    if audit_data.get('speed_ms', 0) > 3000:
+        score -= 10
+        issues.append('Slow page load speed')
+    
+    if not audit_data.get('metadata', {}).get('meta_description'):
+        score -= 5
+        issues.append('Missing meta description')
+    
+    if audit_data.get('redirects', []) and len(audit_data['redirects']) > 2:
+        score -= 5
+        issues.append('Multiple redirect chain detected')
+    
+    score = max(0, score)
+    
+    if score >= 90:
+        grade = 'A'
+    elif score >= 75:
+        grade = 'B'
+    elif score >= 60:
+        grade = 'C'
+    else:
+        grade = 'F'
+    
+    return {'grade': grade, 'score': score, 'issues': issues[:5]}
+
+@script40_bp.route('/', methods=['GET', 'POST'])
+def audit_dashboard():
+    """Main audit dashboard"""
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if request.method == 'POST':
+        domain = request.form.get('domain', '').strip()
+        if not domain:
+            return render_template_string(DASHBOARD_HTML, error='Domain required')
+        
+        audit = AuditEngine(domain)
+        audit_data = audit.run_full_audit()
+        audit_grade = generate_audit_grade(audit_data)
+        
+        return render_template_string(
+            DASHBOARD_HTML,
+            audit_data=json.dumps(audit_data),
+            audit_grade=json.dumps(audit_grade),
+            domain=domain,
+            show_results=True
+        )
+    
+    return render_template_string(DASHBOARD_HTML, audit_data='{}', audit_grade='{}', show_results=False)
+
+@script40_bp.route('/api/audit', methods=['POST'])
+def api_audit():
+    """API endpoint for audits"""
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.get_json()
+    domain = data.get('domain', '').strip()
+    
+    if not domain:
+        return jsonify({'error': 'Domain required'}), 400
+    
+    audit = AuditEngine(domain)
+    audit_data = audit.run_full_audit()
+    audit_grade = generate_audit_grade(audit_data)
+    
+    return jsonify({
+        'audit': audit_data,
+        'grade': audit_grade,
+        'success': 'error' not in audit_data
+    })
+
+@script40_bp.route('/api/fix-code/<fix_type>', methods=['GET'])
+def get_fix_code(fix_type):
+    """Generate fix code for audit issues"""
+    if 'logged_in' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    fixes = {
+        'robots': {
+            'title': 'Optimized robots.txt',
+            'code': '''User-agent: *
 Allow: /
 Disallow: /admin/
 Disallow: /private/
+Disallow: /?utm_source=*
+Disallow: /*?*sort=
+Crawl-delay: 1
 
-Sitemap: """ + url.replace('/robots.txt', '/sitemap.xml')
-            }
-        return {
-            "exists": False,
-            "code": res.status_code,
-            "url": url,
-            "is_blocking_all": False,
-            "summary": "Robots.txt file missing.",
-            "explanation": "Crawlers scan everything unrestricted. Recommended to restrict admin endpoints.",
-            "fix_code": """User-agent: *
-Allow: /
-Disallow: /api/
-Disallow: /login/
+User-agent: AhrefsBot
+Disallow: /
 
-Sitemap: """ + url.replace('/robots.txt', '/sitemap.xml')
-        }
-    except Exception:
-        return {
-            "exists": False,
-            "code": "Timeout",
-            "url": url,
-            "is_blocking_all": False,
-            "summary": "Robots.txt request timed out.",
-            "explanation": "Could not fetch crawler instructions in time.",
-            "fix_code": "# Return standard static robots.txt file from web root."
-        }
+User-agent: SemrushBot
+Disallow: /
 
-def analyze_manifest(url):
-    try:
-        res = requests.get(url, timeout=2.5, headers=DEFAULT_HEADERS)
-        if res.status_code == 200:
-            try:
-                data = res.json()
-                app_name = data.get("name") or data.get("short_name") or "Web App"
-                return {
-                    "exists": True,
-                    "code": 200,
-                    "url": url,
-                    "summary": f"PWA Manifest active ('{app_name}').",
-                    "explanation": "Supports installation on mobile and desktop devices.",
-                    "fix_code": json.dumps(data, indent=2)
-                }
-            except Exception:
-                pass
-        return {
-            "exists": False,
-            "code": res.status_code,
-            "url": url,
-            "summary": "Manifest.json missing or invalid JSON.",
-            "explanation": "No PWA installation prompts on mobile browsers.",
-            "fix_code": """{
+Sitemap: https://yourdomain.com/sitemap.xml
+'''
+        },
+        'sitemap': {
+            'title': 'Dynamic XML Sitemap Generator (Flask)',
+            'code': '''from flask import Blueprint
+from xml.etree.ElementTree import Element, SubElement, tostring
+from datetime import datetime
+
+sitemap_bp = Blueprint('sitemap', __name__)
+
+@sitemap_bp.route('/sitemap.xml', methods=['GET'])
+def sitemap():
+    urlset = Element('urlset')
+    urlset.set('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9')
+    
+    urls = [
+        {'loc': 'https://yourdomain.com/', 'changefreq': 'weekly', 'priority': 1.0},
+        {'loc': 'https://yourdomain.com/about', 'changefreq': 'monthly', 'priority': 0.8},
+        {'loc': 'https://yourdomain.com/blog', 'changefreq': 'daily', 'priority': 0.9},
+    ]
+    
+    for url in urls:
+        url_elem = SubElement(urlset, 'url')
+        loc = SubElement(url_elem, 'loc')
+        loc.text = url['loc']
+        lastmod = SubElement(url_elem, 'lastmod')
+        lastmod.text = datetime.now().strftime('%Y-%m-%d')
+        changefreq = SubElement(url_elem, 'changefreq')
+        changefreq.text = url['changefreq']
+        priority = SubElement(url_elem, 'priority')
+        priority.text = str(url['priority'])
+    
+    from flask import Response
+    return Response(tostring(urlset, encoding='unicode'), mimetype='application/xml')
+'''
+        },
+        'manifest': {
+            'title': 'Progressive Web App manifest.json',
+            'code': '''{
+  "name": "Your App Name",
   "short_name": "App",
-  "name": "WebApplication",
-  "icons": [{ "src": "favicon.ico", "sizes": "64x64", "type": "image/x-icon" }],
+  "description": "Optimized PWA application",
   "start_url": "/",
-  "background_color": "#030712",
-  "theme_color": "#6366f1",
-  "display": "standalone"
-}"""
-        }
-    except Exception:
-        return {
-            "exists": False,
-            "code": "Timeout",
-            "url": url,
-            "summary": "Manifest request timed out.",
-            "explanation": "Unreachable web app manifest.",
-            "fix_code": "// Add manifest link in HTML <head>: <link rel='manifest' href='/manifest.json'>"
-        }
-
-def fetch_ip_geolocation(ip_address):
-    if not ip_address or ip_address == "Resolution Failed":
-        return {"country": "Unknown", "region": "Unknown", "city": "Unknown", "isp": "Unknown"}
-    try:
-        r = requests.get(f"http://ip-api.com/json/{ip_address}?fields=status,country,regionName,city,isp", timeout=1.5)
-        if r.status_code == 200 and r.json().get('status') == 'success':
-            data = r.json()
-            return {
-                "country": data.get("country", "Unknown"),
-                "region": data.get("regionName", "Unknown"),
-                "city": data.get("city", "Unknown"),
-                "isp": data.get("isp", "Unknown")
-            }
-    except Exception:
-        pass
-    return {"country": "Global Cloud", "region": "Edge Node", "city": "Datacenter", "isp": "CDN / Hosting Provider"}
-
-# =========================================================================
-# CONTROLLER ROUTING LOGIC
-# =========================================================================
-@script40_bp.route('/')
-def index():
-    if 'logged_in' not in session:
-        return "<h3 style='color:white; font-family:sans-serif;'>ACCESS DENIED: Please log in from main dashboard.</h3>", 403
-    return render_template_string(UI_LAYOUT)
-
-@script40_bp.route('/api/audit', methods=['POST'])
-def run_toolkit_audit():
-    if 'logged_in' not in session:
-        return jsonify({"success": False, "message": "Unauthorized Session."}), 401
-        
-    target_raw = request.form.get('target', '').strip()
-    if not target_raw:
-        return jsonify({"success": False, "message": "Target URL input cannot be empty."})
-
-    domain, full_url, base_scheme_url = clean_domain_input(target_raw)
-    
-    start_time = time.time()
-    try:
-        session_req = requests.Session()
-        res = session_req.get(full_url, timeout=4, headers=DEFAULT_HEADERS, allow_redirects=True)
-        latency = round((time.time() - start_time) * 1000, 2)
-        html_body = res.text
-        response_headers = dict(res.headers)
-        
-        redirect_chain = []
-        if res.history:
-            for resp in res.history:
-                redirect_chain.append({"status": resp.status_code, "url": resp.url})
-            redirect_chain.append({"status": res.status_code, "url": res.url})
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"Target website connection failed ({str(e)})."
-        }), 400
-
-    # CMS & Stack Detection
-    html_lower = html_body.lower()
-    is_wordpress = any(i in html_lower for i in ["wp-content", "wp-includes", "wp-json", "wordpress", "elementor", "yoast"])
-    is_shopify = "shopify" in html_lower or "cdn.shopify.com" in html_lower
-    is_wix = "wix.com" in html_lower
-    is_react = "react" in html_lower or "_next" in html_lower
-    is_vue = "vue" in html_lower or "_nuxt" in html_lower
-    
-    cms_detected = "WordPress CMS" if is_wordpress else ("Shopify E-Commerce" if is_shopify else ("Wix Builder" if is_wix else ("Next.js / React" if is_react else ("Nuxt / Vue" if is_vue else "Custom HTML/JS Stack"))))
-
-    has_viewport = bool(re.search(r'<meta\s+name=["\']viewport["\']', html_body, re.IGNORECASE))
-    is_responsive = has_viewport or ("@media" in html_lower)
-    has_schema = "application/ld+json" in html_lower or "itemscope" in html_lower
-
-    title_match = re.search(r'<title[^>]*>(.*?)</title>', html_body, re.IGNORECASE | re.DOTALL)
-    page_title = title_match.group(1).strip() if title_match else "No Title Tag Found"
-
-    meta_description = extract_meta_tag(html_body, "description") or "Not Specified"
-    meta_keywords = extract_meta_tag(html_body, "keywords") or "Not Specified"
-    og_title = extract_meta_tag(html_body, "og:title") or "Not Specified"
-    og_description = extract_meta_tag(html_body, "og:description") or "Not Specified"
-
-    headings = {}
-    for i in range(1, 6):
-        tag_name = f"h{i}"
-        matches = re.findall(rf'<{tag_name}[^>]*>(.*?)</{tag_name}>', html_body, re.IGNORECASE | re.DOTALL)
-        clean_matches = [re.sub(r'<[^>]+>', '', m).strip() for m in matches if m.strip()]
-        headings[tag_name.upper()] = {
-            "count": len(clean_matches),
-            "sample": clean_matches[:3]
-        }
-
-    canonical_match = re.search(r'<link\s+rel=["\']canonical["\']\s+href=["\']([^"\']*)["\']', html_body, re.IGNORECASE)
-    canonical_url = canonical_match.group(1) if canonical_match else "Not Configured"
-
-    favicon_match = re.search(r'<link\s+rel=["\'](?:shortcut )?icon["\']\s+href=["\']([^"\']*)["\']', html_body, re.IGNORECASE)
-    favicon_url = urllib.parse.urljoin(full_url, favicon_match.group(1)) if favicon_match else f"{base_scheme_url}/favicon.ico"
-
-    css_urls = list(set(re.findall(r'<link\s+[^>]*rel=["\']stylesheet["\']\s+[^>]*href=["\']([^"\']+)["\']', html_body, re.IGNORECASE)))
-    js_urls = list(set(re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', html_body, re.IGNORECASE)))
-    img_urls = list(set(re.findall(r'<img\s+[^>]*src=["\']([^"\']+)["\']', html_body, re.IGNORECASE)))
-
-    html_size_kb = round(len(html_body.encode('utf-8')) / 1024, 2)
-    css_count = len(css_urls)
-    js_count = len(js_urls)
-    img_count = len(img_urls)
-
-    raw_text = re.sub(r'<[^>]+>', ' ', html_body)
-    raw_text = re.sub(r'\s+', ' ', raw_text).strip()
-    word_count = len(raw_text.split())
-    text_size_kb = round(len(raw_text.encode('utf-8')) / 1024, 2)
-    text_ratio = round((text_size_kb / (html_size_kb or 1)) * 100, 2)
-
-    img_tags = re.findall(r'<img\s+[^>]*>', html_body, re.IGNORECASE)
-    missing_alt_count = sum(1 for img in img_tags if not re.search(r'alt=["\'][^"\']+["\']', img, re.IGNORECASE))
-
-    html_lang_match = re.search(r'<html[^>]*\s+lang=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
-    html_lang = html_lang_match.group(1) if html_lang_match else "Not Specified"
-
-    hreflangs = re.findall(r'<link\s+[^>]*hreflang=["\']([^"\']+)["\']\s+[^>]*href=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
-    hreflang_list = [{"lang": lang, "url": href} for lang, href in hreflangs[:10]]
-
-    # Parse Internal & Outbound Links
-    anchor_tags = re.findall(r'<a\s+(.*?)>(.*?)</a>', html_body, re.IGNORECASE | re.DOTALL)
-    discovered_external_links = []
-    dofollow_cnt, nofollow_cnt = 0, 0
-
-    for attrs, inner_text in anchor_tags:
-        href_m = re.search(r'href=["\']([^"\']*)["\']', attrs, re.IGNORECASE)
-        rel_m = re.search(r'rel=["\']([^"\']*)["\']', attrs, re.IGNORECASE)
-        
-        rel_val = rel_m.group(1).lower() if rel_m else "dofollow"
-        is_nofollow = "nofollow" in rel_val
-        if is_nofollow: nofollow_cnt += 1
-        else: dofollow_cnt += 1
-
-        clean_anchor = re.sub(r'<[^>]+>', '', inner_text).strip() or "[Brand Link]"
-
-        if href_m:
-            target_link = href_m.group(1).strip()
-            if target_link.startswith(('http://', 'https://')):
-                p = urllib.parse.urlparse(target_link)
-                ext_domain = p.netloc.lower()
-                if ext_domain and domain not in ext_domain:
-                    discovered_external_links.append({
-                        "source_website": domain,
-                        "target_url": target_link,
-                        "domain": ext_domain,
-                        "anchor": clean_anchor[:40],
-                        "type": "NoFollow" if is_nofollow else "DoFollow"
-                    })
-
-    # FETCH REAL LIVE SCRAPED BACKLINKS
-    scraped_live_backlinks = fetch_real_live_backlinks(domain)
-
-    keyword_density = extract_keywords_density(raw_text)
-
-    sitemap_url = f"{base_scheme_url}/sitemap.xml"
-    robots_url = f"{base_scheme_url}/robots.txt"
-    manifest_url = f"{base_scheme_url}/manifest.json"
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        f_sitemap = executor.submit(analyze_sitemap_deep, sitemap_url)
-        f_robots = executor.submit(analyze_robots, robots_url)
-        f_manifest = executor.submit(analyze_manifest, manifest_url)
-        
-        sitemap_info = f_sitemap.result()
-        robots_info = f_robots.result()
-        manifest_info = f_manifest.result()
-
-    is_https = full_url.startswith("https://")
-    server_header = response_headers.get('Server', 'Protected / CDN')
-
-    try:
-        ip_address = socket.gethostbyname(domain)
-    except Exception:
-        ip_address = "Resolution Failed"
-
-    geo_data = fetch_ip_geolocation(ip_address)
-
-    # Health Score Calculation
-    score = 100
-    critical_issues = []
-
-    if not is_https:
-        score -= 15
-        critical_issues.append("Website is not using SSL/HTTPS encryption.")
-    if not is_responsive:
-        score -= 15
-        critical_issues.append("Viewport tag missing; site may look broken on mobile devices.")
-    if page_title == "No Title Tag Found":
-        score -= 10
-        critical_issues.append("Title tag is completely missing.")
-    if meta_description == "Not Specified":
-        score -= 10
-        critical_issues.append("Meta Description is not configured.")
-    if not sitemap_info["exists"]:
-        score -= 15
-        critical_issues.append("Sitemap XML file is missing or returning errors.")
-    elif not sitemap_info["is_seo_optimized"]:
-        score -= 5
-        critical_issues.append("Sitemap contains unreachable or unindexed URLs.")
-    if not robots_info["exists"]:
-        score -= 10
-        critical_issues.append("Robots.txt file is missing.")
-    if missing_alt_count > 0:
-        score -= 5
-        critical_issues.append(f"{missing_alt_count} images are missing alt tags.")
-
-    score = max(score, 20)
-
-    # Executive Conclusion Construction
-    conclusion_summary = {
-        "status": "EXCELLENT" if score >= 85 else ("AVERAGE" if score >= 60 else "CRITICAL ATTENTION NEEDED"),
-        "critical_issues_count": len(critical_issues),
-        "issues": critical_issues if critical_issues else ["No critical structural errors found! Site is healthy."]
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#030712",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Open the main dashboard",
+      "url": "/dashboard",
+      "icons": [
+        {
+          "src": "/icons/dashboard.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "/screenshots/screenshot1.png",
+      "sizes": "540x720",
+      "type": "image/png"
+    }
+  ]
+}
+'''
+        }
+    }
+    
+    if fix_type not in fixes:
+        return jsonify({'error': 'Invalid fix type'}), 400
+    
+    return jsonify(fixes[fix_type])
 
-    return jsonify({
-        "success": True,
-        "score": score,
-        "conclusion": conclusion_summary,
-        "domain": domain,
-        "full_url": full_url,
-        "latency": latency,
-        "is_https": is_https,
-        "cms_detected": cms_detected,
-        "is_responsive": is_responsive,
-        "has_schema": has_schema,
-        "ip_address": ip_address,
-        "geo_data": geo_data,
-        "server_info": {"server": server_header},
-        "title": page_title,
-        "canonical_url": canonical_url,
-        "favicon_url": favicon_url,
-        "international_seo": {
-            "lang": html_lang,
-            "hreflang_count": len(hreflangs),
-            "hreflang_list": hreflang_list
-        },
-        "meta": {
-            "description": meta_description,
-            "keywords": meta_keywords,
-            "og_title": og_title,
-            "og_description": og_description
-        },
-        "headings": headings,
-        "files_structure": {
-            "html_size_kb": html_size_kb,
-            "text_ratio": text_ratio,
-            "css_files_count": css_count,
-            "js_files_count": js_count,
-            "images_count": img_count,
-            "missing_alt_images": missing_alt_count,
-            "word_count": word_count
-        },
-        "live_backlinks_engine": {
-            "total_count": len(scraped_live_backlinks),
-            "scraped_list": scraped_live_backlinks,
-            "outbound_count": len(discovered_external_links),
-            "outbound_list": discovered_external_links[:15]
-        },
-        "keyword_density": keyword_density,
-        "redirect_chain": redirect_chain,
-        "files": {
-            "sitemap": sitemap_info,
-            "robots": robots_info,
-            "manifest": manifest_info
-        },
-        "timestamp": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
-    })
-
-# =========================================================================
-# COMPLETE DASHBOARD UI LAYOUT WITH ALL PANELS & CHARTS
-# =========================================================================
-UI_LAYOUT = """
+DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OrbitEdgeMedia Enterprise Site Audit Engine</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <title>OrbitEdgeMedia Audit Suite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #030712; color: #f3f4f6; }
-        .heading-font { font-family: 'Space Grotesk', sans-serif; }
-        .cyber-card { background: rgba(17, 24, 39, 0.95); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
-        .glow-indigo { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.25); }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: linear-gradient(135deg, #030712 0%, #0f1419 100%); color: #e0e0e0; font-family: 'Inter', sans-serif; }
+        .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; }
+        .glow-border { border: 1px solid rgba(99,102,241,0.5); box-shadow: 0 0 20px rgba(99,102,241,0.2); }
+        .metric-box { background: rgba(99,102,241,0.1); border-left: 4px solid #6366f1; padding: 16px; border-radius: 8px; }
+        .btn-primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 10px 24px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: all 0.3s; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(99,102,241,0.4); }
+        .btn-secondary { background: rgba(255,255,255,0.1); color: #e0e0e0; padding: 8px 16px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; font-size: 12px; }
+        .badge-pass { background: rgba(34,197,94,0.2); color: #22c55e; padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+        .badge-fail { background: rgba(239,68,68,0.2); color: #ef4444; padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+        .badge-warning { background: rgba(234,179,8,0.2); color: #eab308; padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+        .grade-a { font-size: 48px; font-weight: 900; color: #22c55e; }
+        .grade-b { font-size: 48px; font-weight: 900; color: #eab308; }
+        .grade-c { font-size: 48px; font-weight: 900; color: #f97316; }
+        .grade-f { font-size: 48px; font-weight: 900; color: #ef4444; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .data-table th { background: rgba(99,102,241,0.2); padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .data-table tr:hover { background: rgba(99,102,241,0.1); }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 1000; }
+        .modal.active { display: flex; }
+        .modal-content { background: #0f1419; border: 1px solid rgba(99,102,241,0.5); border-radius: 12px; padding: 30px; max-width: 600px; max-height: 80vh; overflow-y: auto; position: relative; }
+        .modal-close { position: absolute; top: 15px; right: 15px; background: none; border: none; color: #e0e0e0; font-size: 24px; cursor: pointer; }
+        .code-block { background: rgba(0,0,0,0.3); border: 1px solid rgba(99,102,241,0.3); border-radius: 8px; padding: 16px; margin: 16px 0; font-family: 'Courier New', monospace; font-size: 12px; max-height: 400px; overflow-y: auto; }
+        .copy-btn { position: absolute; top: 10px; right: 10px; background: #6366f1; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .chart-container { position: relative; height: 300px; margin: 20px 0; }
+        .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid rgba(99,102,241,0.3); border-radius: 50%; border-top-color: #6366f1; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="antialiased selection:bg-indigo-500 selection:text-white pb-12">
-
-    <div class="max-w-[1500px] mx-auto p-4 md:p-8 space-y-6">
-        
-        <!-- HEADER BANNER -->
-        <div class="cyber-card p-6 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-4 border-l-4 border-l-indigo-500 shadow-2xl">
-            <div>
-                <h1 class="text-xl md:text-3xl font-bold heading-font tracking-wide text-white flex items-center gap-3">
-                    <i class="fa-solid fa-chart-line text-indigo-400"></i> OrbitEdgeMedia Enterprise Audit
-                </h1>
-                <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Live Web Scraped Backlinks • XML Sitemap Deep Parser • Technical SEO</p>
+<body>
+    <div class="min-h-screen p-4 md:p-8">
+        <div class="max-w-7xl mx-auto">
+            <div class="mb-12">
+                <div class="flex items-center gap-3 mb-2">
+                    <i class="fas fa-globe text-2xl text-indigo-500"></i>
+                    <h1 class="text-4xl font-bold text-white">OrbitEdgeMedia Audit Suite</h1>
+                </div>
+                <p class="text-gray-400">Real-time Cyber-SEO Technical Auditing & Optimization</p>
             </div>
-            <div class="flex items-center gap-3">
-                <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition shadow-lg flex items-center gap-2 cursor-pointer">
-                    <i class="fa-solid fa-file-pdf"></i> Download PDF
-                </button>
-                <a href="/" class="bg-gray-900 border border-gray-800 text-gray-300 text-xs px-4 py-2.5 rounded-xl hover:bg-gray-800 transition font-medium">
-                    <i class="fa-solid fa-arrow-left mr-1.5"></i> Dashboard
-                </a>
-            </div>
-        </div>
 
-        <!-- INPUT FORM -->
-        <div class="cyber-card p-6 rounded-2xl glow-indigo">
-            <form id="auditForm" onsubmit="triggerScanSequence(event)" class="space-y-3">
-                <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider">Target Domain or Web Address</label>
-                <div class="flex flex-col sm:flex-row gap-3">
-                    <div class="relative flex-1">
-                        <span class="absolute inset-y-0 left-0 pl-4 flex items-center text-gray-500"><i class="fa-solid fa-globe text-sm"></i></span>
-                        <input type="text" id="targetUrl" required placeholder="e.g. orbitedgemedia.com or https://example.com" class="w-full bg-gray-950 border border-gray-800 rounded-xl py-3.5 pl-11 pr-4 text-xs text-white focus:outline-none focus:border-indigo-500 transition font-mono">
-                    </div>
-                    <button type="submit" id="submitBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase font-bold tracking-wider px-8 py-3.5 rounded-xl cursor-pointer transition shrink-0 shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
-                        <i id="spinIcon" class="fa-solid fa-circle-notch animate-spin text-sm hidden"></i>
-                        <span>Run Full Audit</span>
+            <div class="glass-card glow-border p-6 mb-8">
+                <h2 class="text-xl font-bold mb-4 text-white">Domain Audit Scanner</h2>
+                <form method="POST" class="flex gap-3">
+                    <input type="text" name="domain" placeholder="example.com or https://example.com" 
+                           class="flex-1 bg-rgba(255,255,255,0.05) border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400" required>
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-search mr-2"></i> Audit Domain
                     </button>
-                </div>
-            </form>
-        </div>
-
-        <!-- DASHBOARD CONTAINER -->
-        <div id="analyticsDashboard" class="hidden space-y-6">
-            
-            <!-- EXECUTIVE CONCLUSION BANNER -->
-            <div class="cyber-card p-6 rounded-2xl border-l-4 border-l-amber-500 space-y-3">
-                <div class="flex items-center justify-between">
-                    <h3 class="font-bold text-sm uppercase text-amber-400 font-mono flex items-center gap-2">
-                        <i class="fa-solid fa-clipboard-check text-base"></i> Executive Audit Conclusion
-                    </h3>
-                    <span id="conclusion-status" class="px-3 py-1 rounded text-xs font-bold font-mono"></span>
-                </div>
-                <ul id="conclusion-issues-list" class="space-y-1 text-xs text-gray-300 font-mono list-disc pl-5"></ul>
+                </form>
+                {% if error %}
+                <div class="mt-4 bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded">{{ error }}</div>
+                {% endif %}
             </div>
 
-            <!-- SCORE & TOP BADGES -->
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                <div class="cyber-card p-6 rounded-2xl flex flex-col items-center justify-center text-center">
-                    <h3 class="text-xs uppercase font-bold text-gray-400 tracking-wider mb-2">SEO Score</h3>
-                    <div class="w-40 h-40 relative flex items-center justify-center">
-                        <canvas id="healthScoreChart"></canvas>
-                        <span id="scoreText" class="absolute text-2xl font-bold font-mono text-white">0%</span>
-                    </div>
-                    <p id="scoreGrade" class="text-xs text-indigo-400 font-bold mt-2 font-mono"></p>
+            {% if show_results %}
+            <script>
+                const auditData = {{ audit_data | safe }};
+                const auditGrade = {{ audit_grade | safe }};
+            </script>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="glass-card glow-border p-6 text-center">
+                    <p class="text-gray-400 text-sm mb-2">Overall Score</p>
+                    <div class="grade-{{ auditGrade['grade'].lower() }}">{{ auditGrade['grade'] }}</div>
+                    <p class="text-xl font-bold text-white mt-2">{{ auditGrade['score'] }}/100</p>
                 </div>
 
-                <div class="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-indigo-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">HTTPS Security</span>
-                        <h3 id="badge-https" class="text-xs md:text-sm font-bold mt-1">Checking...</h3>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-blue-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">CMS Tech Stack</span>
-                        <h3 id="badge-cms" class="text-xs md:text-sm font-bold text-white mt-1 truncate">Checking...</h3>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-emerald-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">Responsiveness</span>
-                        <h3 id="badge-responsive" class="text-xs md:text-sm font-bold mt-1">Checking...</h3>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-cyan-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">Latency Speed</span>
-                        <h3 id="badge-latency" class="text-xs md:text-sm font-bold text-white font-mono mt-1">0 ms</h3>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-purple-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">Server IP</span>
-                        <h3 id="badge-geo" class="text-xs md:text-sm font-bold text-gray-300 font-mono mt-1 truncate">0.0.0.0</h3>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-pink-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">International SEO</span>
-                        <h3 id="badge-lang" class="text-xs md:text-sm font-bold text-white mt-1">Lang: -</h3>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-amber-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">Word Count</span>
-                        <h3 id="badge-words" class="text-xs md:text-sm font-bold text-amber-400 font-mono mt-1">0 Words</h3>
-                    </div>
-                    <div class="cyber-card p-4 rounded-xl border-b-2 border-b-teal-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold">Schema.org Data</span>
-                        <h3 id="badge-schema" class="text-xs md:text-sm font-bold text-teal-300 font-mono mt-1">Checking...</h3>
-                    </div>
+                <div class="glass-card glow-border p-6">
+                    <p class="text-gray-400 text-sm mb-3">Page Speed</p>
+                    <p class="text-2xl font-bold text-indigo-400">{{ auditData['speed_ms'] }}ms</p>
+                    <p class="text-xs text-gray-400 mt-2">Response time from server</p>
+                </div>
+
+                <div class="glass-card glow-border p-6">
+                    <p class="text-gray-400 text-sm mb-3">SSL Status</p>
+                    {% if auditData['ssl']['ssl_enabled'] %}
+                    <span class="badge-pass"><i class="fas fa-lock mr-1"></i> Enabled</span>
+                    {% else %}
+                    <span class="badge-fail"><i class="fas fa-lock-open mr-1"></i> Disabled</span>
+                    {% endif %}
                 </div>
             </div>
 
-            <!-- LIVE SCRAPED BACKLINKS SECTION -->
-            <div class="cyber-card p-6 rounded-2xl space-y-4 border-2 border-indigo-500/40 glow-indigo">
-                <div class="flex items-center justify-between border-b border-gray-800 pb-3">
-                    <div>
-                        <h3 class="font-bold text-base text-white heading-font flex items-center gap-2">
-                            <i class="fa-solid fa-link text-indigo-400"></i> Live Backlinks (Google Index Scraped)
-                        </h3>
-                        <p class="text-xs text-gray-400 mt-0.5">Verified live web sources mentioning or linking to your domain</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="glass-card glow-border p-6">
+                    <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-exclamation-circle text-red-500 mr-2"></i> Critical Issues</h3>
+                    <div class="space-y-2">
+                        {% if auditGrade['issues'] %}
+                            {% for issue in auditGrade['issues'] %}
+                            <div class="flex items-start gap-2 p-3 bg-red-500/10 rounded border border-red-500/30">
+                                <i class="fas fa-circle-xmark text-red-500 mt-1 flex-shrink-0"></i>
+                                <span class="text-sm">{{ issue }}</span>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="flex items-center gap-2 p-3 bg-green-500/10 rounded border border-green-500/30">
+                            <i class="fas fa-circle-check text-green-500"></i>
+                            <span class="text-sm">No critical issues detected</span>
+                        </div>
+                        {% endif %}
                     </div>
-                    <span id="stat-backlinks-count" class="bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 font-mono text-xs px-3 py-1.5 rounded-lg font-bold">Live Found: 0</span>
                 </div>
 
+                <div class="glass-card glow-border p-6">
+                    <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-chart-pie text-indigo-500 mr-2"></i> Content Metrics</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Word Count</span>
+                            <span class="font-bold text-indigo-400">{{ auditData['content']['word_count'] }}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Text-to-HTML Ratio</span>
+                            <span class="font-bold text-indigo-400">{{ auditData['content']['text_ratio'] }}%</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Total Images</span>
+                            <span class="font-bold text-indigo-400">{{ auditData['content']['total_images'] }}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Missing ALT Tags</span>
+                            <span class="font-bold text-red-400">{{ auditData['content']['missing_alt_count'] }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card glow-border p-6 mb-8">
+                <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-link mr-2"></i> Backlinks & Mentions</h3>
+                {% if auditData['backlinks'] %}
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs font-mono">
-                        <thead class="bg-gray-950 text-gray-400 uppercase text-[10px]">
+                    <table class="data-table">
+                        <thead>
                             <tr>
-                                <th class="p-3 border-b border-gray-800">Source Live Web Link</th>
-                                <th class="p-3 border-b border-gray-800">Referring Domain</th>
-                                <th class="p-3 border-b border-gray-800">Anchor / Page Mention</th>
-                                <th class="p-3 border-b border-gray-800 text-center">Status</th>
+                                <th>Source URL</th>
+                                <th>Referring Domain</th>
+                                <th>Anchor Text</th>
+                                <th>Status</th>
                             </tr>
                         </thead>
-                        <tbody id="real-backlinks-table" class="divide-y divide-gray-800/60 bg-gray-950/50"></tbody>
+                        <tbody>
+                            {% for backlink in auditData['backlinks'] %}
+                            <tr>
+                                <td><a href="{{ backlink['source_url'] }}" target="_blank" class="text-indigo-400 hover:underline">{{ backlink['source_url'] }}</a></td>
+                                <td class="text-gray-300">{{ backlink['referring_domain'] }}</td>
+                                <td class="text-gray-400 text-sm">{{ backlink['anchor_text'] }}</td>
+                                <td><span class="badge-pass">Live</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
                     </table>
                 </div>
+                {% else %}
+                <p class="text-gray-400">No recent backlinks detected</p>
+                {% endif %}
             </div>
 
-            <!-- CORE FILES SECTION WITH FIX BUTTONS -->
-            <div class="cyber-card p-6 rounded-2xl space-y-4 border-2 border-indigo-500/40">
-                <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center justify-between">
-                    <span>Search Engine Core Files & Deep Sitemap Evaluation</span>
-                </h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div id="card-sitemap" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-sitemap text-indigo-400 mr-1"></i> Sitemap.xml</span>
-                                <span id="badge-sitemap" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
-                            </div>
-                            <p id="desc-sitemap" class="text-[11px] text-gray-200 font-semibold leading-relaxed"></p>
-                            <p id="exp-sitemap" class="text-[10px] text-gray-400 leading-relaxed"></p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="glass-card glow-border p-6">
+                    <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-robot mr-2"></i> Robots.txt Audit</h3>
+                    <div class="mb-3">
+                        {% if auditData['robots']['health'] == 'Pass' %}
+                        <span class="badge-pass">Pass</span>
+                        {% else %}
+                        <span class="badge-fail">{{ auditData['robots']['health'] }}</span>
+                        {% endif %}
+                    </div>
+                    {% if auditData['robots']['issues'] %}
+                    <ul class="space-y-2 text-sm">
+                        {% for issue in auditData['robots']['issues'] %}
+                        <li class="flex items-start gap-2">
+                            <i class="fas fa-exclamation text-yellow-500 mt-1 flex-shrink-0"></i>
+                            <span>{{ issue }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                    <button class="btn-secondary mt-4 w-full" onclick="openModal('robots')">
+                        <i class="fas fa-code mr-2"></i> Get Fix Code
+                    </button>
+                </div>
+
+                <div class="glass-card glow-border p-6">
+                    <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-sitemap mr-2"></i> Sitemap Audit</h3>
+                    <div class="mb-3">
+                        <p class="text-sm text-gray-400">Total URLs indexed: <span class="font-bold text-indigo-400">{{ auditData['sitemap_urls']|length }}</span></p>
+                    </div>
+                    {% if auditData.get('sitemap_health') %}
+                    <div class="space-y-2 text-sm mb-4">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Healthy:</span>
+                            <span class="text-green-400 font-bold">{{ auditData['sitemap_health']['healthy'] }}</span>
                         </div>
-                        <button id="btn-fix-sitemap" onclick="openFixModal('Sitemap XML Fix Code', currentData.files.sitemap.fix_code)" class="w-full text-center bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold py-2 rounded-lg transition font-mono cursor-pointer">
-                            <i class="fa-solid fa-code mr-1"></i> Get Sitemap Fix Code
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Broken:</span>
+                            <span class="text-red-400 font-bold">{{ auditData['sitemap_health']['broken'] }}</span>
+                        </div>
+                    </div>
+                    {% endif %}
+                    <button class="btn-secondary mt-4 w-full" onclick="openModal('sitemap')">
+                        <i class="fas fa-code mr-2"></i> Get Fix Code
+                    </button>
+                </div>
+            </div>
+
+            <div class="glass-card glow-border p-6 mb-8">
+                <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-heading mr-2"></i> Heading Structure</h3>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    {% for level, headings in [('h1', auditData['headings']['h1']), ('h2', auditData['headings']['h2']), ('h3', auditData['headings']['h3']), ('h4', auditData['headings']['h4']), ('h5', auditData['headings']['h5'])] %}
+                    <div class="metric-box">
+                        <p class="text-xs font-bold text-indigo-400 uppercase">{{ level }}</p>
+                        <p class="text-2xl font-bold text-white">{{ headings|length }}</p>
+                        {% if headings %}
+                        <p class="text-xs text-gray-400 mt-2 truncate">{{ headings[0][:30] }}</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="glass-card glow-border p-6 mb-8">
+                <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-keyboard mr-2"></i> Top Keywords (Density)</h3>
+                {% if auditData['content']['top_keywords'] %}
+                <div class="overflow-x-auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Keyword</th>
+                                <th>Frequency</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for kw in auditData['content']['top_keywords'] %}
+                            <tr>
+                                <td class="font-medium">{{ kw['keyword'] }}</td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-24 bg-gray-600 rounded-full h-2">
+                                            <div class="bg-indigo-500 h-2 rounded-full" style="width: {{ (kw['count'] / 5 * 100)|int }}%"></div>
+                                        </div>
+                                        <span class="text-sm font-bold">{{ kw['count'] }}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-gray-400">Insufficient content for keyword analysis</p>
+                {% endif %}
+            </div>
+
+            <div class="glass-card glow-border p-6 mb-8">
+                <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-server mr-2"></i> Server Information</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">IP Address</p>
+                        <p class="font-mono text-sm">{{ auditData['ip_geolocation']['ip'] }}</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">Country</p>
+                        <p class="font-mono text-sm">{{ auditData['ip_geolocation']['country'] }}</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">City</p>
+                        <p class="font-mono text-sm">{{ auditData['ip_geolocation']['city'] }}</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">ISP</p>
+                        <p class="font-mono text-sm">{{ auditData['ip_geolocation']['isp'][:20] }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card glow-border p-6 mb-8">
+                <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-arrows-turn-right mr-2"></i> Redirect Chain</h3>
+                {% if auditData['redirects'] %}
+                <div class="space-y-3">
+                    {% for redirect in auditData['redirects'] %}
+                    <div class="flex items-center gap-3 text-sm">
+                        <span class="font-mono text-indigo-400">{{ redirect['from'] }}</span>
+                        <i class="fas fa-arrow-right text-gray-500"></i>
+                        <span class="font-mono text-gray-400">{{ redirect['to'] }}</span>
+                        <span class="ml-auto px-2 py-1 bg-gray-700 rounded text-xs">{{ redirect['status'] }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-gray-400 text-sm">No redirect chains detected</p>
+                {% endif %}
+            </div>
+
+            <div class="glass-card glow-border p-6 mb-8">
+                <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-tag mr-2"></i> Metadata Analysis</h3>
+                <div class="space-y-4">
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">Page Title</p>
+                        <p class="text-sm">{{ auditData['metadata']['title'][:80] }}</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">Meta Description</p>
+                        <p class="text-sm">{{ auditData['metadata']['meta_description'][:80] }}</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">Canonical URL</p>
+                        <p class="text-sm font-mono">{{ auditData['metadata']['canonical'][:60] }}</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-xs mb-1">Language</p>
+                        <p class="text-sm">{{ auditData['metadata']['language'] }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card glow-border p-6 mb-8">
+                <h3 class="text-lg font-bold text-white mb-4"><i class="fas fa-print mr-2"></i> Export & Tools</h3>
+                <div class="flex flex-wrap gap-3">
+                    <button class="btn-primary" onclick="window.print()">
+                        <i class="fas fa-file-pdf mr-2"></i> Export as PDF
+                    </button>
+                    <button class="btn-secondary" onclick="location.reload()">
+                        <i class="fas fa-rotate-right mr-2"></i> New Audit
+                    </button>
+                </div>
+            </div>
+
+            <div id="fixModal" class="modal">
+                <div class="modal-content">
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                    <h2 class="text-xl font-bold text-white mb-4">Fix Code</h2>
+                    <div id="fixContent"></div>
+                    <div class="flex gap-3 mt-6">
+                        <button class="btn-primary flex-1" onclick="copyCode()">
+                            <i class="fas fa-copy mr-2"></i> Copy Code
+                        </button>
+                        <button class="btn-secondary flex-1" onclick="closeModal()">
+                            <i class="fas fa-times mr-2"></i> Close
                         </button>
                     </div>
-
-                    <div id="card-robots" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-robot text-cyan-400 mr-1"></i> Robots.txt</span>
-                                <span id="badge-robots" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
-                            </div>
-                            <p id="desc-robots" class="text-[11px] text-gray-200 font-semibold leading-relaxed truncate font-mono"></p>
-                            <p id="exp-robots" class="text-[10px] text-gray-400 leading-relaxed"></p>
-                        </div>
-                        <button id="btn-fix-robots" onclick="openFixModal('Robots.txt Recommended Code', currentData.files.robots.fix_code)" class="w-full text-center bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold py-2 rounded-lg transition font-mono cursor-pointer">
-                            <i class="fa-solid fa-code mr-1"></i> Get Robots.txt Fix Code
-                        </button>
-                    </div>
-
-                    <div id="card-manifest" class="p-4 rounded-xl border bg-gray-950 space-y-3 flex flex-col justify-between">
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-white"><i class="fa-solid fa-mobile-screen text-amber-400 mr-1"></i> Manifest.json</span>
-                                <span id="badge-manifest" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono">Checking</span>
-                            </div>
-                            <p id="desc-manifest" class="text-[11px] text-gray-200 font-semibold leading-relaxed"></p>
-                            <p id="exp-manifest" class="text-[10px] text-gray-400 leading-relaxed"></p>
-                        </div>
-                        <button id="btn-fix-manifest" onclick="openFixModal('Manifest JSON Template', currentData.files.manifest.fix_code)" class="w-full text-center bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold py-2 rounded-lg transition font-mono cursor-pointer">
-                            <i class="fa-solid fa-code mr-1"></i> Get Manifest Template
-                        </button>
-                    </div>
                 </div>
             </div>
 
-            <!-- CHARTS ROW -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Links Structure</h3>
-                    <div class="w-full max-w-[280px] h-48"><canvas id="linksChart"></canvas></div>
-                </div>
-                <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Top Keywords Frequency</h3>
-                    <div class="w-full max-w-[320px] h-48"><canvas id="keywordsChart"></canvas></div>
-                </div>
-                <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Page Assets Breakdown</h3>
-                    <div class="w-full max-w-[280px] h-48"><canvas id="assetsChart"></canvas></div>
-                </div>
-            </div>
-
-            <!-- HEADINGS & METADATA -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="cyber-card p-6 rounded-2xl space-y-4">
-                    <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3">Metadata & Identity Directives</h3>
-                    <div class="space-y-3 text-xs">
-                        <div>
-                            <span class="text-gray-400 font-semibold uppercase text-[10px]">Title Tag:</span>
-                            <p id="val-title" class="text-white font-medium bg-gray-950 p-2 rounded border border-gray-800 mt-1"></p>
-                        </div>
-                        <div>
-                            <span class="text-gray-400 font-semibold uppercase text-[10px]">Meta Description:</span>
-                            <p id="meta-desc" class="text-gray-300 bg-gray-950 p-2 rounded border border-gray-800 mt-1"></p>
-                        </div>
-                        <div>
-                            <span class="text-gray-400 font-semibold uppercase text-[10px]">Canonical URL:</span>
-                            <p id="val-canonical" class="text-indigo-300 font-mono bg-gray-950 p-2 rounded border border-gray-800 mt-1 truncate"></p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="cyber-card p-6 rounded-2xl space-y-4">
-                    <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3">Heading Structure (H1 - H5)</h3>
-                    <div id="headings-container" class="space-y-2"></div>
-                </div>
-            </div>
-
-            <!-- HTTP REDIRECT CHAIN -->
-            <div class="cyber-card p-6 rounded-2xl space-y-4">
-                <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3">HTTP Redirect Chain Tracker</h3>
-                <div id="redirects-container" class="space-y-2 font-mono text-xs"></div>
-            </div>
-
-            <div class="text-center text-xs text-gray-500 font-mono py-4 border-t border-gray-800">
-                OrbitEdgeMedia Site Audit Engine • Live System
-            </div>
-
-        </div>
-    </div>
-
-    <!-- CODE FIX MODAL -->
-    <div id="fixModal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4 z-50">
-        <div class="cyber-card max-w-2xl w-full p-6 rounded-2xl space-y-4 border border-indigo-500/50">
-            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
-                <h3 id="modalTitle" class="font-bold text-sm text-indigo-400 heading-font">Fix Code Solution</h3>
-                <button onclick="closeFixModal()" class="text-gray-400 hover:text-white text-lg font-bold cursor-pointer">&times;</button>
-            </div>
-            <pre id="modalCode" class="bg-gray-950 p-4 rounded-xl text-xs font-mono text-emerald-400 overflow-x-auto max-h-80 border border-gray-800 selection:bg-emerald-800 selection:text-white"></pre>
-            <div class="flex justify-end">
-                <button onclick="closeFixModal()" class="bg-gray-800 hover:bg-gray-700 text-white text-xs px-4 py-2 rounded-lg font-bold cursor-pointer">Close</button>
-            </div>
+            {% endif %}
         </div>
     </div>
 
     <script>
-        let healthChart, linksChart, keywordsChart, assetsChart;
-        let currentData = null;
-
-        async function triggerScanSequence(e) {
-            e.preventDefault();
-            const target = document.getElementById('targetUrl').value;
-            const submitBtn = document.getElementById('submitBtn');
-            const spinIcon = document.getElementById('spinIcon');
-            const dashboard = document.getElementById('analyticsDashboard');
-
-            submitBtn.disabled = true;
-            spinIcon.classList.remove('hidden');
-
-            let fd = new FormData();
-            fd.append('target', target);
-
-            try {
-                let response = await fetch('/script40/api/audit', { method: 'POST', body: fd });
-                let data = await response.json();
-
-                if (data.success) {
-                    currentData = data;
-                    renderHealthChart(data.score);
-
-                    // Render Executive Conclusion
-                    const statusBadge = document.getElementById('conclusion-status');
-                    statusBadge.innerText = data.conclusion.status;
-                    statusBadge.className = data.score >= 80 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded text-xs font-bold" : "bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1 rounded text-xs font-bold";
-
-                    const issuesList = document.getElementById('conclusion-issues-list');
-                    issuesList.innerHTML = '';
-                    data.conclusion.issues.forEach(iss => {
-                        issuesList.innerHTML += `<li>${iss}</li>`;
-                    });
-
-                    // Badges
-                    document.getElementById('badge-https').innerText = data.is_https ? "HTTPS Secure" : "HTTP Insecure";
-                    document.getElementById('badge-cms').innerText = data.cms_detected;
-                    document.getElementById('badge-responsive').innerText = data.is_responsive ? "Mobile Friendly" : "Non-Responsive";
-                    document.getElementById('badge-latency').innerText = `${data.latency} ms`;
-                    document.getElementById('badge-geo').innerText = data.ip_address;
-                    document.getElementById('badge-lang').innerText = `Lang: ${data.international_seo.lang}`;
-                    document.getElementById('badge-words').innerText = `${data.files_structure.word_count} Words`;
-                    document.getElementById('badge-schema').innerText = data.has_schema ? "Schema Detected" : "No Schema";
-
-                    // LIVE BACKLINKS SCRAPED
-                    const backlinks = data.live_backlinks_engine.scraped_list;
-                    document.getElementById('stat-backlinks-count').innerText = `Live Found: ${backlinks.length}`;
-
-                    const tableBody = document.getElementById('real-backlinks-table');
-                    tableBody.innerHTML = '';
-
-                    if (backlinks.length === 0) {
-                        tableBody.innerHTML = `
-                            <tr>
-                                <td colspan="4" class="p-4 text-center text-gray-400 italic">
-                                    No external Google indexed backlinks found right now for this target domain.
-                                </td>
-                            </tr>
-                        `;
-                    } else {
-                        backlinks.forEach(bl => {
-                            tableBody.innerHTML += `
-                                <tr>
-                                    <td class="p-3 text-indigo-300 font-mono text-[11px] font-bold">
-                                        <a href="${bl.source_website}" target="_blank" class="hover:underline flex items-center gap-1">
-                                            ${bl.source_website} <i class="fa-solid fa-external-link text-[9px]"></i>
-                                        </a>
-                                    </td>
-                                    <td class="p-3 text-cyan-400 font-mono text-[11px]">${bl.domain}</td>
-                                    <td class="p-3 text-gray-300 italic">${bl.anchor}</td>
-                                    <td class="p-3 text-center">
-                                        <span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                                            200 Live
-                                        </span>
-                                    </td>
-                                </tr>
-                            `;
-                        });
-                    }
-
-                    // File Cards
-                    renderFileCard('badge-sitemap', 'desc-sitemap', 'exp-sitemap', data.files.sitemap);
-                    renderFileCard('badge-robots', 'desc-robots', 'exp-robots', data.files.robots);
-                    renderFileCard('badge-manifest', 'desc-manifest', 'exp-manifest', data.files.manifest);
-
-                    // Charts
-                    renderLinksChart(data.live_backlinks_engine.outbound_count, backlinks.length);
-                    renderKeywordsChart(data.keyword_density);
-                    renderAssetsChart(data.files_structure);
-
-                    // Metadata
-                    document.getElementById('val-title').innerText = data.title;
-                    document.getElementById('meta-desc').innerText = data.meta.description;
-                    document.getElementById('val-canonical').innerText = data.canonical_url;
-
-                    // Headings
-                    const headingsContainer = document.getElementById('headings-container');
-                    headingsContainer.innerHTML = '';
-                    Object.keys(data.headings).forEach(tag => {
-                        const item = data.headings[tag];
-                        const samples = item.sample.length > 0 ? item.sample.map(s => `<li class="truncate">• ${s}</li>`).join('') : '<li class="text-gray-500 italic">No tags detected</li>';
-                        headingsContainer.innerHTML += `
-                            <div class="bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-xs">
-                                <div class="flex items-center justify-between mb-1">
-                                    <span class="font-bold font-mono text-indigo-400 text-xs">${tag} Tag</span>
-                                    <span class="text-gray-400 text-[10px] font-mono">${item.count} Found</span>
-                                </div>
-                                <ul class="text-[11px] text-gray-400 space-y-0.5 font-mono">${samples}</ul>
-                            </div>
-                        `;
-                    });
-
-                    // Redirect Chain
-                    const redirectsContainer = document.getElementById('redirects-container');
-                    redirectsContainer.innerHTML = '';
-                    if (!data.redirect_chain || data.redirect_chain.length <= 1) {
-                        redirectsContainer.innerHTML = '<p class="text-xs text-emerald-400">Direct loading path without HTTP redirects.</p>';
-                    } else {
-                        data.redirect_chain.forEach((step, idx) => {
-                            redirectsContainer.innerHTML += `
-                                <div class="p-2 bg-gray-950 border border-amber-500/30 rounded-lg flex items-center justify-between">
-                                    <span class="truncate text-[10px] text-gray-300">${idx+1}. ${step.url}</span>
-                                    <span class="bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded text-[10px] font-bold">${step.status}</span>
-                                </div>
-                            `;
-                        });
-                    }
-
-                    dashboard.classList.remove('hidden');
-                } else {
-                    alert("Audit Error: " + data.message);
-                }
-            } catch (err) {
-                alert("Server Connection Error!");
-            } finally {
-                submitBtn.disabled = false;
-                spinIcon.classList.add('hidden');
-            }
+        function openModal(fixType) {
+            fetch(`/audit/api/fix-code/${fixType}`)
+                .then(r => r.json())
+                .then(data => {
+                    const html = `
+                        <h3 class="text-lg font-bold text-indigo-400 mb-3">${data.title}</h3>
+                        <div class="code-block" id="codeBlock">${escapeHtml(data.code)}</div>
+                    `;
+                    document.getElementById('fixContent').innerHTML = html;
+                    document.getElementById('fixModal').classList.add('active');
+                });
         }
 
-        function renderFileCard(badgeId, descId, expId, fileObj) {
-            const badge = document.getElementById(badgeId);
-            if (fileObj.exists) {
-                badge.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-                badge.innerText = `Found (${fileObj.code})`;
-            } else {
-                badge.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30";
-                badge.innerText = `Missing (${fileObj.code})`;
-            }
-            document.getElementById(descId).innerText = fileObj.summary;
-            document.getElementById(expId).innerText = fileObj.explanation;
+        function closeModal() {
+            document.getElementById('fixModal').classList.remove('active');
         }
 
-        function openFixModal(title, code) {
-            document.getElementById('modalTitle').innerText = title;
-            document.getElementById('modalCode').innerText = code || "// No specific fix required.";
-            document.getElementById('fixModal').classList.remove('hidden');
-        }
-
-        function closeFixModal() {
-            document.getElementById('fixModal').classList.add('hidden');
-        }
-
-        function renderHealthChart(score) {
-            const ctx = document.getElementById('healthScoreChart').getContext('2d');
-            if (healthChart) healthChart.destroy();
-            document.getElementById('scoreText').innerText = `${score}%`;
-            document.getElementById('scoreGrade').innerText = score >= 80 ? "Grade: A" : "Grade: B";
-
-            healthChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { datasets: [{ data: [score, 100 - score], backgroundColor: ['#10b981', '#1f2937'], borderWidth: 0 }] },
-                options: { cutout: '80%', plugins: { tooltip: { enabled: false } }, responsive: true, maintainAspectRatio: false }
+        function copyCode() {
+            const codeBlock = document.getElementById('codeBlock');
+            const text = codeBlock.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Code copied to clipboard!');
             });
         }
 
-        function renderLinksChart(outbound, back) {
-            const ctx = document.getElementById('linksChart').getContext('2d');
-            if (linksChart) linksChart.destroy();
-            linksChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: ['Outbound Links', 'Live Backlinks'], datasets: [{ data: [outbound, back], backgroundColor: ['#6366f1', '#06b6d4'], borderWidth: 0 }] },
-                options: { plugins: { legend: { labels: { color: '#9ca3af', font: { size: 10 } } } }, responsive: true, maintainAspectRatio: false }
-            });
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
-        function renderKeywordsChart(keywords) {
-            const ctx = document.getElementById('keywordsChart').getContext('2d');
-            if (keywordsChart) keywordsChart.destroy();
-            keywordsChart = new Chart(ctx, {
-                type: 'bar',
-                data: { labels: keywords.map(k => k.word), datasets: [{ label: 'Count', data: keywords.map(k => k.count), backgroundColor: '#a855f7', borderRadius: 4 }] },
-                options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#9ca3af', font: { size: 9 } } }, y: { ticks: { color: '#9ca3af', font: { size: 9 } } } }, responsive: true, maintainAspectRatio: false }
-            });
-        }
-
-        function renderAssetsChart(filesStruct) {
-            const ctx = document.getElementById('assetsChart').getContext('2d');
-            if (assetsChart) assetsChart.destroy();
-            assetsChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: ['CSS', 'JS', 'Images'], datasets: [{ data: [filesStruct.css_files_count, filesStruct.js_files_count, filesStruct.images_count], backgroundColor: ['#eab308', '#ec4899', '#10b981'], borderWidth: 0 }] },
-                options: { plugins: { legend: { labels: { color: '#9ca3af', font: { size: 10 } } } }, responsive: true, maintainAspectRatio: false }
-            });
-        }
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
     </script>
+
+    <style>
+        @media print {
+            body { background: white; }
+            .glass-card { background: white; border: 1px solid #ddd; }
+            .btn-primary, .btn-secondary { display: none; }
+            .modal { display: none !important; }
+        }
+    </style>
 </body>
 </html>
-"""
+'''
 
+__all__ = ['script40_bp']
