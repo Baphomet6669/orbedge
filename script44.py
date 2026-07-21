@@ -1,5 +1,5 @@
 import os
-from flask import Blueprint, render_template_string
+from flask import Blueprint, render_template_string, Flask
 
 script44_bp = Blueprint('script44', __name__)
 
@@ -9,8 +9,8 @@ HTML_LAYOUT = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Script 44 | Professional PDF Editor</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <title>Script 44 | Smart PDF Text Replacement Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- PDF Libraries -->
@@ -19,595 +19,202 @@ HTML_LAYOUT = """
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #f1f5f9;
-            min-height: 100vh;
-        }
-
-        .btn-primary {
-            @apply bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold px-4 py-2.5 rounded-lg transition-all duration-200 shadow-lg hover:shadow-indigo-500/50 flex items-center gap-2;
-        }
-
-        .btn-secondary {
-            @apply bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold px-3 py-1.5 rounded-lg transition-all duration-200 flex items-center gap-1.5 text-sm;
-        }
-
-        .btn-danger {
-            @apply bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 font-semibold px-3 py-1.5 rounded-lg transition-all duration-200 flex items-center gap-1.5 text-sm;
-        }
-
-        .input-field {
-            @apply bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50;
-        }
-
-        .canvas-container {
-            position: relative;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-            overflow: hidden;
-        }
-
-        .canvas-container canvas {
-            display: block;
-            max-width: 100%;
-            height: auto;
-        }
-
-        .toolbar-group {
-            @apply bg-gray-800/50 backdrop-blur border border-gray-700/50 rounded-lg p-3 flex flex-wrap gap-2 items-center;
-        }
-
-        .status-badge {
-            @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold;
-        }
-
-        .status-success {
-            @apply bg-emerald-500/20 text-emerald-400 border border-emerald-500/30;
-        }
-
-        .status-info {
-            @apply bg-blue-500/20 text-blue-400 border border-blue-500/30;
-        }
-
-        .status-loading {
-            @apply bg-indigo-500/20 text-indigo-400 border border-indigo-500/30;
-        }
-
-        .divider {
-            @apply h-6 w-px bg-gray-700;
-        }
-
-        .slider {
-            @apply w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer;
-        }
-
-        .slider::-webkit-slider-thumb {
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #6366f1, #a855f7);
-            cursor: pointer;
-            box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
-        }
-
-        .slider::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #6366f1, #a855f7);
-            cursor: pointer;
-            border: none;
-            box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
-        }
-
-        .modal {
-            @apply fixed inset-0 bg-black/50 backdrop-blur flex items-center justify-center z-50 hidden;
-        }
-
-        .modal.active {
-            @apply flex;
-        }
-
-        .modal-content {
-            @apply bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f1f5f9; }
+        .canvas-container-custom { position: relative; background: #ffffff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin: 0 auto; }
+        .btn-btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 600; border-radius: 0.5rem; transition: all 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, #6366f1, #a855f7); color: white; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-secondary { background: #334155; color: #f8fafc; }
+        .btn-secondary:hover { background: #475569; }
     </style>
 </head>
-<body class="antialiased">
+<body class="min-h-screen flex flex-col">
 
     <!-- HEADER -->
-    <header class="border-b border-gray-800 bg-gray-950/80 backdrop-blur px-6 py-4 sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="p-2.5 bg-gradient-to-tr from-indigo-600 to-purple-500 rounded-xl shadow-lg shadow-indigo-500/20">
-                    <i class="fa-solid fa-file-signature text-lg text-white"></i>
-                </div>
-                <div>
-                    <h1 class="text-lg font-bold tracking-tight text-white">Script 44</h1>
-                    <p class="text-xs text-gray-400 mt-0.5">Professional Native Text Overwrite Engine</p>
-                </div>
+    <header class="border-b border-slate-800 bg-slate-950 p-4 sticky top-0 z-50 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-indigo-600 rounded-lg text-white">
+                <i class="fa-solid fa-file-pen text-xl"></i>
             </div>
-            <div id="file-info" class="status-badge status-info hidden">
-                <i class="fa-solid fa-circle text-current"></i>
-                <span id="file-name">No file loaded</span>
+            <div>
+                <h1 class="text-base font-bold text-white">Script 44 Engine</h1>
+                <p class="text-xs text-slate-400">PDF Text Whiteout & Replace System</p>
             </div>
+        </div>
+        <div id="file-status" class="text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700 text-slate-300">
+            No File Loaded
         </div>
     </header>
 
     <!-- TOOLBAR -->
-    <div class="border-b border-gray-800 bg-gray-900/50 backdrop-blur px-6 py-4 sticky top-16 z-40">
-        <div class="max-w-7xl mx-auto">
-            <div class="toolbar-group mb-3">
-                <label class="btn-primary cursor-pointer text-sm">
-                    <i class="fa-solid fa-upload"></i> Load PDF
-                    <input type="file" id="pdfInput" accept="application/pdf" class="hidden">
-                </label>
-                
-                <div class="divider"></div>
+    <div class="border-b border-slate-800 bg-slate-900/90 p-3 flex flex-wrap gap-3 items-center justify-between sticky top-16 z-40">
+        <div class="flex items-center gap-2">
+            <label class="btn-btn btn-primary cursor-pointer">
+                <i class="fa-solid fa-file-upload"></i> Open PDF
+                <input type="file" id="pdfInput" accept="application/pdf" class="hidden">
+            </label>
 
-                <button onclick="addNewText()" class="btn-secondary">
-                    <i class="fa-solid fa-plus text-indigo-400"></i> Add Text
-                </button>
+            <button onclick="extractAndMakeEditable()" id="btnExtract" class="btn-btn btn-secondary" disabled>
+                <i class="fa-solid fa-i-cursor text-indigo-400"></i> Make Existing Text Editable
+            </button>
 
-                <label class="btn-secondary cursor-pointer">
-                    <i class="fa-solid fa-image text-emerald-400"></i> Add Image
-                    <input type="file" id="imageInput" accept="image/*" class="hidden">
-                </label>
+            <button onclick="addNewText()" class="btn-btn btn-secondary">
+                <i class="fa-solid fa-plus text-emerald-400"></i> Add Text
+            </button>
 
-                <button onclick="deleteSelected()" class="btn-danger">
-                    <i class="fa-solid fa-trash"></i> Delete
-                </button>
+            <button onclick="deleteSelected()" class="btn-btn btn-secondary text-red-400">
+                <i class="fa-solid fa-trash"></i> Delete
+            </button>
+        </div>
 
-                <div class="divider"></div>
-
-                <button onclick="undoAction()" class="btn-secondary">
-                    <i class="fa-solid fa-undo text-amber-400"></i> Undo
-                </button>
-
-                <button onclick="redoAction()" class="btn-secondary">
-                    <i class="fa-solid fa-redo text-amber-400"></i> Redo
-                </button>
-
-                <div class="ml-auto">
-                    <button id="exportBtn" onclick="exportPDF()" class="btn-primary text-sm" disabled>
-                        <i class="fa-solid fa-download"></i> Export PDF
-                    </button>
-                </div>
-            </div>
-
-            <!-- Text Formatting -->
-            <div id="textToolbar" class="toolbar-group hidden">
-                <label class="flex items-center gap-2 text-sm">
-                    <span class="text-gray-300 w-20">Font:</span>
-                    <select id="fontSelect" onchange="updateTextFont()" class="input-field w-32">
-                        <option>Arial</option>
-                        <option>Times New Roman</option>
-                        <option>Courier New</option>
-                        <option>Georgia</option>
-                        <option>Verdana</option>
-                    </select>
-                </label>
-
-                <label class="flex items-center gap-2 text-sm">
-                    <span class="text-gray-300 w-20">Size:</span>
-                    <input type="number" id="fontSize" min="8" max="72" value="16" onchange="updateTextSize()" class="input-field w-16">
-                </label>
-
-                <label class="flex items-center gap-2 text-sm">
-                    <span class="text-gray-300 w-20">Color:</span>
-                    <input type="color" id="textColor" value="#000000" onchange="updateTextColor()" class="w-10 h-10 rounded cursor-pointer border border-gray-600">
-                </label>
-
-                <div class="divider"></div>
-
-                <label class="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" id="boldCheck" onchange="updateTextStyle()">
-                    <span>Bold</span>
-                </label>
-
-                <label class="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" id="italicCheck" onchange="updateTextStyle()">
-                    <span>Italic</span>
-                </label>
-
-                <label class="flex items-center gap-2 text-sm">
-                    <span class="text-gray-300 w-24">Opacity:</span>
-                    <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="1" onchange="updateOpacity()" class="slider w-24">
-                </label>
-            </div>
+        <div>
+            <button id="exportBtn" onclick="exportPDF()" class="btn-btn btn-primary" disabled>
+                <i class="fa-solid fa-download"></i> Save PDF
+            </button>
         </div>
     </div>
 
-    <!-- STATUS BAR -->
-    <div class="border-b border-gray-800 bg-gray-900/30 px-6 py-2">
-        <div class="max-w-7xl mx-auto flex items-center justify-between">
-            <div id="status-message" class="text-xs text-gray-400 flex items-center gap-2">
-                <i class="fa-solid fa-info-circle text-blue-400"></i>
-                <span>PDF upload karo, aur kisi bhi puraane text par double-click karke use badal do!</span>
-            </div>
-            <div id="page-info" class="text-xs text-gray-500 hidden">
-                <span id="current-page">1</span> / <span id="total-pages">0</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- CANVAS AREA -->
-    <main class="flex-1 p-6 overflow-auto bg-gray-950/30">
-        <div class="max-w-6xl mx-auto">
-            <div class="canvas-container">
-                <canvas id="pdfCanvas"></canvas>
-            </div>
+    <!-- MAIN CANVAS -->
+    <main class="flex-1 p-6 overflow-auto flex justify-center items-start">
+        <div class="canvas-container-custom">
+            <canvas id="pdfCanvas"></canvas>
         </div>
     </main>
 
-    <!-- PAGE NAVIGATION -->
-    <div id="pageNav" class="border-t border-gray-800 bg-gray-900/50 backdrop-blur px-6 py-3 sticky bottom-0 hidden">
-        <div class="max-w-7xl mx-auto flex items-center justify-center gap-4">
-            <button onclick="previousPage()" class="btn-secondary">
-                <i class="fa-solid fa-chevron-left"></i> Previous
-            </button>
-            <div class="flex items-center gap-2">
-                <span class="text-sm">Page</span>
-                <input type="number" id="pageInput" min="1" value="1" onchange="gotoPage()" class="input-field w-12 text-center">
-                <span class="text-sm">of <span id="pageCount">0</span></span>
-            </div>
-            <button onclick="nextPage()" class="btn-secondary">
-                Next <i class="fa-solid fa-chevron-right"></i>
-            </button>
-        </div>
-    </div>
-
+    <!-- JS LOGIC -->
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         let fabricCanvas = null;
-        let pdfDocument = null;
-        let pdfBytes = null;
-        let currentPage = 1;
-        let totalPages = 0;
-        let history = [];
-        let historyIndex = -1;
-        let selectedObject = null;
+        let pdfDoc = null;
+        let pdfBytesOriginal = null;
+        let pageViewport = null;
 
-        const statusEl = document.getElementById('status-message');
-        const exportBtn = document.getElementById('exportBtn');
-        const pageNav = document.getElementById('pageNav');
-        const textToolbar = document.getElementById('textToolbar');
-
-        function initFabric() {
-            const canvas = document.getElementById('pdfCanvas');
+        function initCanvas() {
             fabricCanvas = new fabric.Canvas('pdfCanvas', {
-                preserveObjectStacking: true,
-                enableRetinaScaling: true,
+                preserveObjectStacking: true
             });
-
-            fabricCanvas.on('object:added', saveHistory);
-            fabricCanvas.on('object:modified', saveHistory);
-            fabricCanvas.on('object:removed', saveHistory);
-            fabricCanvas.on('selection:created', showTextToolbar);
-            fabricCanvas.on('selection:updated', showTextToolbar);
-            fabricCanvas.on('selection:cleared', hideTextToolbar);
         }
 
         document.getElementById('pdfInput').addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            updateStatus('loading', 'PDF parse ho raha hai...');
-            try {
-                pdfBytes = await file.arrayBuffer();
-                pdfDocument = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
-                totalPages = pdfDocument.numPages;
-                currentPage = 1;
+            pdfBytesOriginal = await file.arrayBuffer();
+            pdfDoc = await pdfjsLib.getDocument({ data: pdfBytesOriginal }).promise;
+            
+            document.getElementById('file-status').textContent = file.name;
+            document.getElementById('btnExtract').disabled = false;
+            document.getElementById('exportBtn').disabled = false;
 
-                document.getElementById('file-name').textContent = file.name;
-                document.getElementById('file-info').classList.remove('hidden');
-                document.getElementById('total-pages').textContent = totalPages;
-                document.getElementById('pageCount').textContent = totalPages;
-                document.getElementById('pageInput').value = 1;
-                document.getElementById('pageInput').max = totalPages;
-                
-                if (totalPages > 1) {
-                    pageNav.classList.remove('hidden');
-                }
-                
-                document.getElementById('page-info').classList.remove('hidden');
-                exportBtn.disabled = false;
-
-                history = [];
-                historyIndex = -1;
-
-                await renderPage(1);
-                updateStatus('success', 'PDF ready! Text par click karke edit karo!');
-            } catch (error) {
-                updateStatus('error', 'PDF load error: ' + error.message);
-                console.error(error);
-            }
+            renderPage(1);
         });
 
         async function renderPage(pageNum) {
-            if (!pdfDocument) return;
+            fabricCanvas.clear();
+            const page = await pdfDoc.getPage(pageNum);
+            pageViewport = page.getViewport({ scale: 1.5 });
 
-            try {
-                fabricCanvas.clear();
-                const page = await pdfDocument.getPage(pageNum);
-                const viewport = page.getViewport({ scale: 2 });
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = pageViewport.width;
+            tempCanvas.height = pageViewport.height;
 
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCanvas.width = viewport.width;
-                tempCanvas.height = viewport.height;
+            await page.render({ canvasContext: tempCtx, viewport: pageViewport }).promise;
 
-                await page.render({ canvasContext: tempCtx, viewport }).promise;
+            fabricCanvas.setWidth(pageViewport.width);
+            fabricCanvas.setHeight(pageViewport.height);
 
-                fabricCanvas.setWidth(viewport.width);
-                fabricCanvas.setHeight(viewport.height);
+            fabric.Image.fromURL(tempCanvas.toDataURL(), (img) => {
+                fabricCanvas.setBackgroundImage(img, fabricCanvas.renderAll.bind(fabricCanvas));
+            });
+        }
 
-                fabric.Image.fromURL(tempCanvas.toDataURL(), (img) => {
-                    fabricCanvas.setBackgroundImage(img, fabricCanvas.renderAll.bind(fabricCanvas));
+        // टेक्स्ट एक्सट्रेक्ट करके एडिटेबल बनाना (Whiteout Mode)
+        async function extractAndMakeEditable() {
+            if (!pdfDoc) return;
+
+            const page = await pdfDoc.getPage(1);
+            const textContent = await page.getTextContent();
+
+            textContent.items.forEach((item) => {
+                if (!item.str.trim()) return;
+
+                const tx = pdfjsLib.Util.transformPath(pageViewport.transform, item.transform);
+                const x = tx[4];
+                const y = pageViewport.height - tx[5];
+                const fontSize = Math.max(10, item.height * pageViewport.scale);
+
+                // 1. पुराने टेक्स्ट को छिपाने के लिए वाइट बॉक्स (Whiteout Box)
+                const whiteoutRect = new fabric.Rect({
+                    left: x - 2,
+                    top: y - fontSize,
+                    width: item.width * pageViewport.scale + 4,
+                    height: fontSize * 1.2,
+                    fill: 'white',
+                    selectable: false,
+                    evented: false
                 });
 
-                const textContent = await page.getTextContent();
-                textContent.items.forEach((item, index) => {
-                    if (!item.str || !item.str.trim()) return;
-
-                    const tx = pdfjsLib.Util.transformPath(viewport.transform, item.transform);
-                    const x = tx[4];
-                    const y = viewport.height - tx[5];
-                    const fontSize = Math.max(12, (item.height || 12) * 1.5);
-
-                    const textObject = new fabric.IText(item.str, {
-                        left: x,
-                        top: y - fontSize,
-                        fontSize: fontSize,
-                        fill: '#000000',
-                        fontFamily: 'Arial',
-                        editable: true,
-                        hasControls: true,
-                        hasBorders: true,
-                        selectable: true,
-                        originX: 'left',
-                        originY: 'top',
-                        metadata: { isOriginalText: true, pageNum: pageNum }
-                    });
-
-                    fabricCanvas.add(textObject);
+                // 2. पुराने टेक्स्ट के ऊपर नया Editable Text Object
+                const editableText = new fabric.IText(item.str, {
+                    left: x,
+                    top: y - fontSize,
+                    fontSize: fontSize,
+                    fill: '#000000',
+                    fontFamily: 'sans-serif',
+                    editable: true
                 });
 
-                currentPage = pageNum;
-                document.getElementById('current-page').textContent = pageNum;
-                document.getElementById('pageInput').value = pageNum;
+                fabricCanvas.add(whiteoutRect);
+                fabricCanvas.add(editableText);
+            });
 
-                saveHistory();
-            } catch (error) {
-                updateStatus('error', 'Page render error: ' + error.message);
-                console.error(error);
-            }
+            fabricCanvas.renderAll();
+            alert('Existing text is now editable! Non-editable areas are covered with whiteout overlay.');
         }
 
         function addNewText() {
-            if (!fabricCanvas) return alert('Pehle PDF load karo!');
-
-            const text = new fabric.IText('Edit this text', {
+            const text = new fabric.IText('New Text', {
                 left: 100,
                 top: 100,
-                fontSize: 16,
+                fontSize: 20,
                 fill: '#000000',
-                fontFamily: 'Arial',
-                editable: true,
-                selectable: true,
-                hasControls: true,
-                hasBorders: true,
-                metadata: { isNewText: true }
             });
-
             fabricCanvas.add(text);
             fabricCanvas.setActiveObject(text);
-            fabricCanvas.renderAll();
-        }
-
-        function showTextToolbar() {
-            const activeObj = fabricCanvas.getActiveObject();
-            if (activeObj && activeObj.type === 'i-text') {
-                selectedObject = activeObj;
-                document.getElementById('fontSelect').value = activeObj.fontFamily || 'Arial';
-                document.getElementById('fontSize').value = activeObj.fontSize || 16;
-                document.getElementById('textColor').value = rgbToHex(activeObj.fill || '#000000');
-                document.getElementById('boldCheck').checked = activeObj.fontWeight === 'bold';
-                document.getElementById('italicCheck').checked = activeObj.fontStyle === 'italic';
-                document.getElementById('opacitySlider').value = activeObj.opacity || 1;
-                
-                textToolbar.classList.remove('hidden');
-            }
-        }
-
-        function hideTextToolbar() {
-            textToolbar.classList.add('hidden');
-            selectedObject = null;
-        }
-
-        function updateTextFont() {
-            if (!selectedObject) return;
-            selectedObject.set({ fontFamily: document.getElementById('fontSelect').value });
-            fabricCanvas.renderAll();
-        }
-
-        function updateTextSize() {
-            if (!selectedObject) return;
-            selectedObject.set({ fontSize: parseInt(document.getElementById('fontSize').value) });
-            fabricCanvas.renderAll();
-        }
-
-        function updateTextColor() {
-            if (!selectedObject) return;
-            selectedObject.set({ fill: document.getElementById('textColor').value });
-            fabricCanvas.renderAll();
-        }
-
-        function updateTextStyle() {
-            if (!selectedObject) return;
-            selectedObject.set({
-                fontWeight: document.getElementById('boldCheck').checked ? 'bold' : 'normal',
-                fontStyle: document.getElementById('italicCheck').checked ? 'italic' : 'normal',
-            });
-            fabricCanvas.renderAll();
-        }
-
-        function updateOpacity() {
-            if (!selectedObject) return;
-            const opacity = parseFloat(document.getElementById('opacitySlider').value);
-            selectedObject.set({ opacity: opacity });
-            fabricCanvas.renderAll();
         }
 
         function deleteSelected() {
-            const activeObj = fabricCanvas.getActiveObject();
-            if (activeObj) {
-                fabricCanvas.remove(activeObj);
-                fabricCanvas.renderAll();
-                hideTextToolbar();
-            }
-        }
-
-        document.getElementById('imageInput').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                fabric.Image.fromURL(event.target.result, (img) => {
-                    img.scaleToWidth(200);
-                    img.set({ left: 100, top: 100 });
-                    fabricCanvas.add(img);
-                    fabricCanvas.setActiveObject(img);
-                    fabricCanvas.renderAll();
-                });
-            };
-            reader.readAsDataURL(file);
-        });
-
-        function saveHistory() {
-            historyIndex++;
-            history = history.slice(0, historyIndex);
-            history.push(JSON.stringify(fabricCanvas.toJSON()));
-        }
-
-        function undoAction() {
-            if (historyIndex > 0) {
-                historyIndex--;
-                loadHistoryState(history[historyIndex]);
-            }
-        }
-
-        function redoAction() {
-            if (historyIndex < history.length - 1) {
-                historyIndex++;
-                loadHistoryState(history[historyIndex]);
-            }
-        }
-
-        function loadHistoryState(state) {
-            fabricCanvas.loadFromJSON(state, () => {
-                fabricCanvas.renderAll();
-            });
-        }
-
-        function previousPage() {
-            if (currentPage > 1) {
-                renderPage(currentPage - 1);
-            }
-        }
-
-        function nextPage() {
-            if (currentPage < totalPages) {
-                renderPage(currentPage + 1);
-            }
-        }
-
-        function gotoPage() {
-            const pageNum = parseInt(document.getElementById('pageInput').value);
-            if (pageNum >= 1 && pageNum <= totalPages) {
-                renderPage(pageNum);
-            }
+            const active = fabricCanvas.getActiveObject();
+            if (active) fabricCanvas.remove(active);
         }
 
         async function exportPDF() {
-            if (!pdfBytes) return alert('Pehle PDF load karo!');
+            const pdfDocLib = await PDFLib.PDFDocument.load(pdfBytesOriginal);
+            const page = pdfDocLib.getPages()[0];
 
-            updateStatus('loading', 'PDF export ho raha hai...');
-            try {
-                const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
-                const page = pdfDoc.getPages()[currentPage - 1];
-                
-                if (!page) throw new Error('Page not found');
+            const canvasDataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 2 });
+            const pngImage = await pdfDocLib.embedPng(canvasDataUrl);
 
-                const canvasImage = fabricCanvas.toDataURL({ format: 'png', multiplier: 2 });
-                const pngImage = await pdfDoc.embedPng(canvasImage);
-                const { width, height } = page.getSize();
+            const { width, height } = page.getSize();
+            page.drawImage(pngImage, {
+                x: 0,
+                y: 0,
+                width: width,
+                height: height
+            });
 
-                page.drawImage(pngImage, {
-                    x: 0,
-                    y: 0,
-                    width: width,
-                    height: height,
-                });
-
-                const pdfBytes = await pdfDoc.save();
-                downloadPDF(pdfBytes, 'edited-document.pdf');
-                updateStatus('success', 'PDF export complete!');
-            } catch (error) {
-                updateStatus('error', 'Export failed: ' + error.message);
-                console.error(error);
-            }
-        }
-
-        function downloadPDF(bytes, filename) {
-            const blob = new Blob([bytes], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
+            const savedBytes = await pdfDocLib.save();
+            const blob = new Blob([savedBytes], { type: 'application/pdf' });
             const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
+            link.href = URL.createObjectURL(blob);
+            link.download = 'edited.pdf';
             link.click();
-            URL.revokeObjectURL(url);
         }
 
-        function updateStatus(type, message) {
-            statusEl.innerHTML = `
-                <i class="fa-solid ${
-                    type === 'loading' ? 'fa-spinner animate-spin text-indigo-400' :
-                    type === 'success' ? 'fa-circle-check text-emerald-400' :
-                    type === 'error' ? 'fa-circle-exclamation text-red-400' :
-                    'fa-info-circle text-blue-400'
-                }"></i>
-                <span>${message}</span>
-            `;
-        }
-
-        function rgbToHex(color) {
-            if (color.startsWith('#')) return color;
-            const rgb = color.match(/\\d+/g);
-            if (!rgb) return '#000000';
-            return '#' + rgb.map(x => {
-                const hex = parseInt(x).toString(16);
-                return hex.length === 1 ? '0' + hex : hex;
-            }).join('');
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            initFabric();
-        });
+        window.onload = initCanvas;
     </script>
 </body>
 </html>
@@ -617,8 +224,9 @@ HTML_LAYOUT = """
 def index():
     return render_template_string(HTML_LAYOUT)
 
+app = Flask(__name__)
+app.register_blueprint(script44_bp)
+
 if __name__ == '__main__':
-    from flask import Flask
-    app = Flask(__name__)
-    app.register_blueprint(script44_bp)
     app.run(debug=True, port=5000)
+
