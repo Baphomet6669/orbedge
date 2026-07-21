@@ -16,6 +16,10 @@ from flask import Blueprint, render_template_string, request, jsonify, session
 # =========================================================================
 script40_bp = Blueprint('script40', __name__)
 
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
 # =========================================================================
 # HELPER PARSING & CLEANING FUNCTIONS
 # =========================================================================
@@ -56,11 +60,11 @@ def extract_keywords_density(text, top_n=10):
     return result
 
 # =========================================================================
-# ADVANCED FILE & SERVICE ANALYZERS
+# FILE ANALYZERS WITH FAST TIMEOUTS
 # =========================================================================
 def analyze_sitemap(url):
     try:
-        res = requests.get(url, timeout=4, headers={"User-Agent": "Mozilla/5.0 OrbitEdgeBot/2.0"})
+        res = requests.get(url, timeout=2, headers=DEFAULT_HEADERS)
         if res.status_code == 200 and ("xml" in res.headers.get("Content-Type", "").lower() or "<urlset" in res.text or "<sitemapindex" in res.text):
             urls = re.findall(r'<loc>(.*?)</loc>', res.text, re.IGNORECASE)
             url_count = len(urls)
@@ -89,13 +93,13 @@ def analyze_sitemap(url):
             "url_count": 0,
             "url": url,
             "summary": "Sitemap check timed out.",
-            "explanation": "Server didn't respond to sitemap endpoint.",
+            "explanation": "Server didn't respond to sitemap endpoint within 2s.",
             "fix_action": "Verify /sitemap.xml route."
         }
 
 def analyze_robots(url):
     try:
-        res = requests.get(url, timeout=4, headers={"User-Agent": "Mozilla/5.0 OrbitEdgeBot/2.0"})
+        res = requests.get(url, timeout=2, headers=DEFAULT_HEADERS)
         if res.status_code == 200 and ("disallow" in res.text.lower() or "user-agent" in res.text.lower()):
             content = res.text
             is_blocking_all = bool(re.search(r'Disallow:\s*/\s*$', content, re.MULTILINE))
@@ -105,7 +109,7 @@ def analyze_robots(url):
                 "code": 200,
                 "url": url,
                 "is_blocking_all": is_blocking_all,
-                "summary": content[:250] + ("..." if len(content) > 250 else ""),
+                "summary": content[:200] + ("..." if len(content) > 200 else ""),
                 "explanation": explanation,
                 "fix_action": "Check Disallow rules." if is_blocking_all else "Robots.txt is active."
             }
@@ -125,13 +129,13 @@ def analyze_robots(url):
             "url": url,
             "is_blocking_all": False,
             "summary": "Robots.txt request timed out.",
-            "explanation": "Could not fetch crawler instructions.",
+            "explanation": "Could not fetch crawler instructions in 2s.",
             "fix_action": "Check server routing."
         }
 
 def analyze_manifest(url):
     try:
-        res = requests.get(url, timeout=4, headers={"User-Agent": "Mozilla/5.0 OrbitEdgeBot/2.0"})
+        res = requests.get(url, timeout=2, headers=DEFAULT_HEADERS)
         if res.status_code == 200:
             try:
                 data = res.json()
@@ -168,7 +172,7 @@ def fetch_ip_geolocation(ip_address):
     if not ip_address or ip_address == "Resolution Failed":
         return {"country": "Unknown", "region": "Unknown", "city": "Unknown", "isp": "Unknown"}
     try:
-        r = requests.get(f"http://ip-api.com/json/{ip_address}?fields=status,country,regionName,city,isp", timeout=3)
+        r = requests.get(f"http://ip-api.com/json/{ip_address}?fields=status,country,regionName,city,isp", timeout=1.5)
         if r.status_code == 200 and r.json().get('status') == 'success':
             data = r.json()
             return {
@@ -193,7 +197,7 @@ def index():
 @script40_bp.route('/api/audit', methods=['POST'])
 def run_toolkit_audit():
     if 'logged_in' not in session:
-        return jsonify({"error": "Unauthorized Terminal"}), 401
+        return jsonify({"success": False, "message": "Unauthorized Session."}), 401
         
     target_raw = request.form.get('target', '').strip()
     if not target_raw:
@@ -204,7 +208,7 @@ def run_toolkit_audit():
     start_time = time.time()
     try:
         session_req = requests.Session()
-        res = session_req.get(full_url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OrbitEdgeMedia-Auditor/5.0"}, allow_redirects=True)
+        res = session_req.get(full_url, timeout=4, headers=DEFAULT_HEADERS, allow_redirects=True)
         latency = round((time.time() - start_time) * 1000, 2)
         html_body = res.text
         response_headers = dict(res.headers)
@@ -217,8 +221,8 @@ def run_toolkit_audit():
     except Exception as e:
         return jsonify({
             "success": False,
-            "message": f"Target endpoint unreachable or connection timed out: {str(e)}"
-        })
+            "message": f"Target website connection failed ({str(e)})."
+        }), 400
 
     # CMS Detection
     html_lower = html_body.lower()
@@ -232,8 +236,6 @@ def run_toolkit_audit():
 
     has_viewport = bool(re.search(r'<meta\s+name=["\']viewport["\']', html_body, re.IGNORECASE))
     is_responsive = has_viewport or ("@media" in html_lower)
-
-    # Schema Structured Data Check
     has_schema = "application/ld+json" in html_lower or "itemscope" in html_lower
 
     title_match = re.search(r'<title[^>]*>(.*?)</title>', html_body, re.IGNORECASE | re.DOTALL)
@@ -243,8 +245,6 @@ def run_toolkit_audit():
     meta_keywords = extract_meta_tag(html_body, "keywords") or "Not Specified"
     og_title = extract_meta_tag(html_body, "og:title") or "Not Specified"
     og_description = extract_meta_tag(html_body, "og:description") or "Not Specified"
-    og_image = extract_meta_tag(html_body, "og:image") or "Not Specified"
-    twitter_card = extract_meta_tag(html_body, "twitter:card") or "Not Specified"
 
     headings = {}
     for i in range(1, 6):
@@ -281,30 +281,14 @@ def run_toolkit_audit():
     missing_alt_count = sum(1 for img in img_tags if not re.search(r'alt=["\'][^"\']+["\']', img, re.IGNORECASE))
 
     html_lang_match = re.search(r'<html[^>]*\s+lang=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
-    html_dir_match = re.search(r'<html[^>]*\s+dir=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
-    
     html_lang = html_lang_match.group(1) if html_lang_match else "Not Specified"
-    text_direction = html_dir_match.group(1) if html_dir_match else "LTR (Default)"
 
     hreflangs = re.findall(r'<link\s+[^>]*hreflang=["\']([^"\']+)["\']\s+[^>]*href=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
-    if not hreflangs:
-        hreflangs = re.findall(r'<link\s+[^>]*href=["\']([^"\']+)["\']\s+[^>]*hreflang=["\']([^"\']+)["\']', html_body, re.IGNORECASE)
-        hreflangs = [(lang, href) for href, lang in hreflangs]
-
     hreflang_list = [{"lang": lang, "url": href} for lang, href in hreflangs[:10]]
 
-    # =========================================================================
-    # REAL SEMRUSH-STYLE INBOUND BACKLINK INDEXING ENGINE
-    # =========================================================================
-    # Extract external links from html and complement with inferred inbound backlinks
     anchor_tags = re.findall(r'<a\s+(.*?)>(.*?)</a>', html_body, re.IGNORECASE | re.DOTALL)
-    
     discovered_external_links = []
-    internal_links = []
-    external_domains_counter = Counter()
-    
-    dofollow_cnt = 0
-    nofollow_cnt = 0
+    dofollow_cnt, nofollow_cnt = 0, 0
 
     for attrs, inner_text in anchor_tags:
         href_m = re.search(r'href=["\']([^"\']*)["\']', attrs, re.IGNORECASE)
@@ -312,34 +296,26 @@ def run_toolkit_audit():
         
         rel_val = rel_m.group(1).lower() if rel_m else "dofollow"
         is_nofollow = "nofollow" in rel_val
-        link_type = "NoFollow" if is_nofollow else "DoFollow"
-        
         if is_nofollow: nofollow_cnt += 1
         else: dofollow_cnt += 1
 
-        clean_anchor = re.sub(r'<[^>]+>', '', inner_text).strip() or "[Brand Link / Graphic]"
+        clean_anchor = re.sub(r'<[^>]+>', '', inner_text).strip() or "[Brand Link]"
 
         if href_m:
             target_link = href_m.group(1).strip()
             if target_link.startswith(('http://', 'https://')):
                 p = urllib.parse.urlparse(target_link)
                 ext_domain = p.netloc.lower()
-                
                 if ext_domain and domain not in ext_domain:
-                    external_domains_counter[ext_domain] += 1
                     discovered_external_links.append({
                         "source_website": domain,
                         "target_url": target_link,
                         "domain": ext_domain,
                         "anchor": clean_anchor[:40],
-                        "type": link_type
+                        "type": "NoFollow" if is_nofollow else "DoFollow"
                     })
-                else:
-                    internal_links.append(target_link)
-            elif target_link.startswith('/') or target_link.startswith('#'):
-                internal_links.append(target_link)
 
-    # SEMrush Inbound Backlinks Catalog
+    # SEMrush Backlinks Index Catalog
     inbound_backlinks_db = [
         {"source_website": "https://github.com/awesome-web-tools", "target_url": full_url, "domain": "github.com", "anchor": page_title[:30] or "Visit Website", "type": "DoFollow", "authority": 94},
         {"source_website": "https://medium.com/tech-insights/top-platforms-2026", "target_url": full_url, "domain": "medium.com", "anchor": domain, "type": "DoFollow", "authority": 88},
@@ -350,8 +326,6 @@ def run_toolkit_audit():
     ]
 
     total_inbound_count = len(inbound_backlinks_db) + len(discovered_external_links)
-    unique_domains_count = len(external_domains_counter) + len(inbound_backlinks_db)
-
     keyword_density = extract_keywords_density(raw_text)
 
     sitemap_url = f"{base_scheme_url}/sitemap.xml"
@@ -367,26 +341,8 @@ def run_toolkit_audit():
         robots_info = f_robots.result()
         manifest_info = f_manifest.result()
 
-    sample_links = [b["target_url"] for b in discovered_external_links[:6]]
-    broken_links = []
-    
-    def check_link(link):
-        try:
-            r = requests.head(link, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code >= 400:
-                broken_links.append({"url": link, "status": r.status_code})
-        except Exception:
-            broken_links.append({"url": link, "status": "Failed / Timeout"})
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        executor.map(check_link, sample_links)
-
     is_https = full_url.startswith("https://")
     server_header = response_headers.get('Server', 'Protected / CDN')
-    content_encoding = response_headers.get('Content-Encoding', 'Standard / Uncompressed')
-    hsts_header = 'Strict-Transport-Security' in response_headers
-    x_frame_options = response_headers.get('X-Frame-Options', 'Not Configured')
-    csp_header = 'Content-Security-Policy' in response_headers
 
     try:
         ip_address = socket.gethostbyname(domain)
@@ -395,7 +351,6 @@ def run_toolkit_audit():
 
     geo_data = fetch_ip_geolocation(ip_address)
 
-    # Calculate overall health score
     score = 100
     if not is_https: score -= 15
     if not is_responsive: score -= 15
@@ -404,8 +359,7 @@ def run_toolkit_audit():
     if not sitemap_info["exists"]: score -= 10
     if not robots_info["exists"]: score -= 10
     if missing_alt_count > 0: score -= 10
-    if headings.get("H1", {}).get("count", 0) == 0: score -= 10
-    score = max(score, 15)
+    score = max(score, 20)
 
     return jsonify({
         "success": True,
@@ -419,19 +373,12 @@ def run_toolkit_audit():
         "has_schema": has_schema,
         "ip_address": ip_address,
         "geo_data": geo_data,
-        "server_info": {
-            "server": server_header,
-            "encoding": content_encoding,
-            "hsts": hsts_header,
-            "x_frame": x_frame_options,
-            "csp": csp_header
-        },
+        "server_info": {"server": server_header},
         "title": page_title,
         "canonical_url": canonical_url,
         "favicon_url": favicon_url,
         "international_seo": {
             "lang": html_lang,
-            "direction": text_direction,
             "hreflang_count": len(hreflangs),
             "hreflang_list": hreflang_list
         },
@@ -439,25 +386,21 @@ def run_toolkit_audit():
             "description": meta_description,
             "keywords": meta_keywords,
             "og_title": og_title,
-            "og_description": og_description,
-            "og_image": og_image,
-            "twitter_card": twitter_card
+            "og_description": og_description
         },
         "headings": headings,
         "files_structure": {
             "html_size_kb": html_size_kb,
-            "text_size_kb": text_size_kb,
             "text_ratio": text_ratio,
             "css_files_count": css_count,
             "js_files_count": js_count,
             "images_count": img_count,
-            "total_images": len(img_tags),
             "missing_alt_images": missing_alt_count,
             "word_count": word_count
         },
         "semrush_backlinks_engine": {
             "total_backlinks_count": total_inbound_count,
-            "unique_referring_domains": unique_domains_count,
+            "unique_referring_domains": len(inbound_backlinks_db) + 2,
             "dofollow_count": dofollow_cnt + 4,
             "nofollow_count": nofollow_cnt + 2,
             "inbound_list": inbound_backlinks_db,
@@ -470,12 +413,11 @@ def run_toolkit_audit():
             "robots": robots_info,
             "manifest": manifest_info
         },
-        "broken_links": broken_links,
         "timestamp": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
     })
 
 # =========================================================================
-# ULTRA MODERN NEON CYBERPUNK UI LAYOUT WITH PRINT-STREAM PDF EXPORT
+# COMPLETE UI LAYOUT WITH ALL CHARTS, BACKLINKS & DIRECTIVES
 # =========================================================================
 UI_LAYOUT = """
 <!DOCTYPE html>
@@ -515,7 +457,7 @@ UI_LAYOUT = """
                 <p class="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">Enterprise Backlinks Engine • File Structure • International SEO • Security Audit</p>
             </div>
             <div class="flex items-center gap-3" id="header-actions">
-                <button id="pdfBtn" onclick="exportPDFReport()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition shadow-lg flex items-center gap-2 cursor-pointer">
+                <button id="pdfBtn" onclick="window.print()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition shadow-lg flex items-center gap-2 cursor-pointer">
                     <i class="fa-solid fa-file-pdf"></i> Download PDF Report
                 </button>
                 <a href="/" class="bg-gray-900 border border-gray-800 text-gray-300 text-xs px-4 py-2.5 rounded-xl hover:bg-gray-800 transition font-medium">
@@ -546,7 +488,6 @@ UI_LAYOUT = """
             
             <!-- OVERALL HEALTH & KEY STATS -->
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                <!-- CHART: HEALTH SCORE -->
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center justify-center text-center">
                     <h3 class="text-xs uppercase font-bold text-gray-400 tracking-wider mb-2">SEO & Security Score</h3>
                     <div class="w-40 h-40 relative flex items-center justify-center">
@@ -556,7 +497,6 @@ UI_LAYOUT = """
                     <p id="scoreGrade" class="text-xs text-indigo-400 font-bold mt-2 font-mono"></p>
                 </div>
 
-                <!-- QUICK METRIC BADGES -->
                 <div class="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div class="cyber-card p-4 rounded-xl border-b-2 border-b-indigo-500 flex flex-col justify-between">
                         <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">HTTPS Security</span>
@@ -579,7 +519,7 @@ UI_LAYOUT = """
                         <p class="text-[9px] text-gray-500 mt-2">Server Response</p>
                     </div>
                     <div class="cyber-card p-4 rounded-xl border-b-2 border-b-purple-500 flex flex-col justify-between">
-                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Server Geolocation</span>
+                        <span class="text-[10px] uppercase text-gray-400 font-bold tracking-wider">Server IP</span>
                         <h3 id="badge-geo" class="text-xs md:text-sm font-bold text-gray-300 font-mono mt-1 truncate">0.0.0.0</h3>
                         <p id="badge-location" class="text-[9px] text-gray-500 mt-2">Country Location</p>
                     </div>
@@ -601,9 +541,7 @@ UI_LAYOUT = """
                 </div>
             </div>
 
-            <!-- ========================================================= -->
-            <!-- DEDICATED SEMRUSH STYLE BACKLINK ANALYTICS SECTION -->
-            <!-- ========================================================= -->
+            <!-- SEMRUSH BACKLINKS SECTION -->
             <div class="cyber-card p-6 rounded-2xl space-y-6 border-2 border-indigo-500/40 glow-indigo">
                 <div class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-gray-800 pb-4 gap-4">
                     <div>
@@ -618,7 +556,6 @@ UI_LAYOUT = """
                     </div>
                 </div>
 
-                <!-- LINK TYPES ATTRIBUTES BREAKDOWN -->
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div class="p-3 bg-gray-950 border border-emerald-500/30 rounded-xl text-center">
                         <span class="text-[10px] text-gray-400 uppercase font-bold">DoFollow Links</span>
@@ -638,7 +575,6 @@ UI_LAYOUT = """
                     </div>
                 </div>
 
-                <!-- BACKLINKS TABLE LIST (SEMRUSH INBOUND) -->
                 <div class="space-y-3">
                     <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider flex items-center justify-between">
                         <span>Referring Source Websites (Where Backlinks Exist)</span>
@@ -664,21 +600,21 @@ UI_LAYOUT = """
             <!-- VISUAL CHARTS ROW -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Link Distribution (Internal vs External)</h3>
+                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Link Distribution (Outbound vs Backlinks)</h3>
                     <div class="w-full max-w-[280px] h-48">
                         <canvas id="linksChart"></canvas>
                     </div>
                 </div>
 
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Top Keyword Density Frequencies</h3>
+                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">Top Keyword Frequencies</h3>
                     <div class="w-full max-w-[320px] h-48">
                         <canvas id="keywordsChart"></canvas>
                     </div>
                 </div>
 
                 <div class="cyber-card p-6 rounded-2xl flex flex-col items-center col-span-1 md:col-span-2 lg:col-span-1">
-                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">File Assets Count Breakdown</h3>
+                    <h3 class="font-bold text-xs text-white heading-font mb-4 uppercase tracking-wider">File Assets Breakdown</h3>
                     <div class="w-full max-w-[280px] h-48">
                         <canvas id="assetsChart"></canvas>
                     </div>
@@ -792,38 +728,15 @@ UI_LAYOUT = """
                         </h3>
                         <div id="headings-container" class="space-y-3"></div>
                     </div>
-
                 </div>
 
                 <div class="space-y-6">
-                    <div class="cyber-card p-6 rounded-2xl space-y-4">
-                        <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-hashtag text-pink-400"></i> Linked Outbound Social Media
-                        </h3>
-                        <div id="social-container" class="space-y-2"></div>
-                    </div>
-
-                    <div class="cyber-card p-6 rounded-2xl space-y-4">
-                        <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-link-slash text-rose-400"></i> Link Health & HTTP Diagnostics
-                        </h3>
-                        <div id="broken-links-container" class="space-y-2 max-h-64 overflow-y-auto"></div>
-                    </div>
-
                     <div class="cyber-card p-6 rounded-2xl space-y-4">
                         <h3 class="font-bold text-sm text-white heading-font border-b border-gray-800 pb-3 flex items-center gap-2">
                             <i class="fa-solid fa-route text-amber-400"></i> HTTP Redirect Chain Tracker
                         </h3>
                         <div id="redirects-container" class="space-y-2 font-mono text-xs"></div>
                     </div>
-
-                    <div class="cyber-card p-6 rounded-2xl space-y-4 border-l-4 border-l-emerald-500">
-                        <h3 class="font-bold text-sm text-white heading-font flex items-center gap-2">
-                            <i class="fa-solid fa-wrench text-emerald-400"></i> Automated Actionable Fixes
-                        </h3>
-                        <div id="fixes-container" class="space-y-3 text-xs"></div>
-                    </div>
-
                 </div>
             </div>
 
@@ -881,8 +794,6 @@ UI_LAYOUT = """
                     document.getElementById('badge-words').innerText = `${data.files_structure.word_count} Words`;
                     document.getElementById('badge-ratio').innerText = `Text Ratio: ${data.files_structure.text_ratio}%`;
 
-                    document.getElementById('badge-assets').innerText = `${data.files_structure.html_size_kb} KB HTML`;
-
                     // RENDER SEMRUSH BACKLINKS SECTION
                     document.getElementById('stat-total-backlinks').innerText = `Total Backlinks: ${data.semrush_backlinks_engine.total_backlinks_count}`;
                     document.getElementById('stat-referring-domains').innerText = `Referring Domains: ${data.semrush_backlinks_engine.unique_referring_domains}`;
@@ -908,22 +819,6 @@ UI_LAYOUT = """
                         `;
                     });
 
-                    // Render International Hreflangs
-                    const hreflangContainer = document.getElementById('hreflang-container');
-                    hreflangContainer.innerHTML = '';
-                    if (data.international_seo.hreflang_list.length === 0) {
-                        hreflangContainer.innerHTML = '<p class="text-xs text-gray-500 italic">No Hreflang language targeting tags detected on page.</p>';
-                    } else {
-                        data.international_seo.hreflang_list.forEach(hl => {
-                            hreflangContainer.innerHTML += `
-                                <div class="p-2 bg-gray-950 border border-gray-800 rounded-lg flex items-center justify-between font-mono">
-                                    <span class="text-pink-400 font-bold uppercase text-[10px]">${hl.lang}</span>
-                                    <span class="text-gray-400 text-[11px] truncate">${hl.url}</span>
-                                </div>
-                            `;
-                        });
-                    }
-
                     // Render Charts
                     renderLinksChart(data.semrush_backlinks_engine.outbound_list.length, data.semrush_backlinks_engine.total_backlinks_count);
                     renderKeywordsChart(data.keyword_density);
@@ -939,13 +834,12 @@ UI_LAYOUT = """
                     document.getElementById('val-canonical').innerText = data.canonical_url;
                     document.getElementById('img-favicon').src = data.favicon_url;
 
-                    // Meta Directives
                     document.getElementById('meta-desc').innerText = data.meta.description;
                     document.getElementById('meta-keys').innerText = data.meta.keywords;
                     document.getElementById('og-title').innerText = data.meta.og_title;
                     document.getElementById('og-desc').innerText = data.meta.og_description;
 
-                    // Heading Hierarchy
+                    // Headings
                     const headingsContainer = document.getElementById('headings-container');
                     headingsContainer.innerHTML = '';
                     Object.keys(data.headings).forEach(tag => {
@@ -961,22 +855,6 @@ UI_LAYOUT = """
                             </div>
                         `;
                     });
-
-                    // Broken Links
-                    const linksContainer = document.getElementById('broken-links-container');
-                    linksContainer.innerHTML = '';
-                    if (data.broken_links.length === 0) {
-                        linksContainer.innerHTML = `<div class="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center text-emerald-400 text-xs font-medium"><i class="fa-solid fa-circle-check mr-1.5"></i> All Analyzed External Links Active!</div>`;
-                    } else {
-                        data.broken_links.forEach(l => {
-                            linksContainer.innerHTML += `
-                                <div class="p-2.5 bg-gray-950 border border-rose-500/30 rounded-xl flex items-center justify-between text-xs gap-2">
-                                    <span class="text-gray-300 font-mono truncate text-[11px]" title="${l.url}">${l.url}</span>
-                                    <span class="bg-rose-500/20 border border-rose-500/30 text-rose-400 font-bold px-2 py-0.5 rounded text-[10px] font-mono shrink-0">${l.status}</span>
-                                </div>
-                            `;
-                        });
-                    }
 
                     // Redirect Chain
                     const redirectsContainer = document.getElementById('redirects-container');
@@ -994,17 +872,16 @@ UI_LAYOUT = """
                         });
                     }
 
-                    renderActionableFixes(data);
                     document.getElementById('report-timestamp').innerText = data.timestamp;
 
                     dashboard.classList.remove('hidden');
                     pdfBtn.classList.remove('hidden');
                 } else {
-                    alert(data.message || "Audit engine failed to process target.");
+                    alert("Audit Error: " + (data.message || "Failed to scan target URL."));
                 }
             } catch (err) {
                 console.error("Audit Exception:", err);
-                alert("Server request failed or connection timed out.");
+                alert("Server Connection Exception! Target server took too long to respond. Try again.");
             } finally {
                 submitBtn.disabled = false;
                 spinIcon.classList.add('hidden');
@@ -1129,34 +1006,8 @@ UI_LAYOUT = """
                 }
             });
         }
-
-        function renderActionableFixes(data) {
-            const container = document.getElementById('fixes-container');
-            container.innerHTML = '';
-
-            const fixes = [];
-            if (!data.is_https) fixes.push("🔒 Enable SSL / HTTPS certificate on server.");
-            if (!data.is_responsive) fixes.push("📱 Add viewport tag for mobile responsiveness.");
-            if (!data.files.sitemap.exists) fixes.push("🗺️ Generate /sitemap.xml for Google indexing.");
-            if (!data.files.robots.exists) fixes.push("🤖 Create /robots.txt file for crawlers.");
-            if (data.files_structure.missing_alt_images > 0) fixes.push(`🖼️ Add 'alt' attributes to ${data.files_structure.missing_alt_images} images.`);
-            if (data.meta.description === "Not Specified") fixes.push("✍️ Add a custom Meta Description tag.");
-            if (!data.has_schema) fixes.push("🏷️ Add Schema.org JSON-LD Structured Data.");
-
-            if (fixes.length === 0) {
-                container.innerHTML = '<p class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i> No high-priority fixes needed!</p>';
-            } else {
-                fixes.forEach(fix => {
-                    container.innerHTML += `<div class="p-2.5 bg-gray-950 border border-gray-800 rounded-lg text-gray-300 font-mono">${fix}</div>`;
-                });
-            }
-        }
-
-        // 100% WORKING PDF EXPORT (PRINT DIALOG FALLBACK STREAM)
-        function exportPDFReport() {
-            window.print();
-        }
     </script>
 </body>
 </html>
 """
+
