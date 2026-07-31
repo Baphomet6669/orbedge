@@ -29,6 +29,45 @@ HTML_LAYOUT = """
             border-radius: 0.5rem;
             background: #ffffff;
         }
+        .editable-text {
+            cursor: text;
+        }
+        .editable-text:hover {
+            opacity: 0.8;
+        }
+        .text-input-popup {
+            position: fixed;
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            z-index: 1000;
+            border: 2px solid #6366f1;
+            min-width: 200px;
+        }
+        .text-input-popup input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+        }
+        .text-input-popup button {
+            margin-top: 8px;
+            width: 100%;
+            padding: 6px;
+            background: #6366f1;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .text-input-popup button:hover {
+            background: #4f46e5;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -41,7 +80,7 @@ HTML_LAYOUT = """
             </div>
             <div>
                 <h1 class="text-base font-bold text-white tracking-wide">Sejda-Style PDF Editor</h1>
-                <p class="text-xs text-slate-400">Direct Text Recognition & In-Place Editing</p>
+                <p class="text-xs text-slate-400">Click on text to edit directly • Drag to move • Delete with ease</p>
             </div>
         </div>
         <div id="file-status" class="text-xs bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 truncate max-w-[200px] sm:max-w-xs">
@@ -56,10 +95,6 @@ HTML_LAYOUT = """
                 <i class="fa-solid fa-cloud-arrow-up"></i> Upload PDF
                 <input type="file" id="pdfInput" accept="application/pdf" class="hidden">
             </label>
-
-            <button onclick="extractAndMakeEditable()" id="btnExtract" class="bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-700 font-medium text-xs px-4 py-2.5 rounded-lg transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed" disabled>
-                <i class="fa-solid fa-i-cursor text-indigo-400"></i> Make Existing Text Editable
-            </button>
 
             <button onclick="addNewText()" id="btnAddText" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs px-4 py-2.5 rounded-lg transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed" disabled>
                 <i class="fa-solid fa-plus text-emerald-400"></i> Add New Text
@@ -93,6 +128,7 @@ HTML_LAYOUT = """
         let pdfBytesOriginal = null;
         let pageViewport = null;
         let textElementsMap = [];
+        let editingText = null;
 
         function initCanvas() {
             fabricCanvas = new fabric.Canvas('pdfCanvas', {
@@ -110,12 +146,12 @@ HTML_LAYOUT = """
                 pdfDoc = await pdfjsLib.getDocument({ data: pdfBytesOriginal.slice(0) }).promise;
                 
                 document.getElementById('file-status').textContent = file.name;
-                document.getElementById('btnExtract').disabled = false;
                 document.getElementById('btnAddText').disabled = false;
                 document.getElementById('btnDelete').disabled = false;
                 document.getElementById('exportBtn').disabled = false;
 
                 await renderPage(1);
+                await extractAndMakeEditable();
             } catch (err) {
                 alert('Failed to load PDF: ' + err.message);
                 console.error(err);
@@ -153,7 +189,6 @@ HTML_LAYOUT = """
 
             const page = await pdfDoc.getPage(1);
             const textContent = await page.getTextContent();
-            let count = 0;
 
             textContent.items.forEach((item) => {
                 if (!item.str || !item.str.trim()) return;
@@ -163,7 +198,7 @@ HTML_LAYOUT = """
                 const fontSize = Math.abs(tx[3]) || (item.height * pageViewport.scale);
                 const y = pageViewport.height - tx[5] - (fontSize * 0.8);
 
-                // 1. Cover original text on background with white mask
+                // White mask to cover original text
                 const whiteoutRect = new fabric.Rect({
                     left: x - 1,
                     top: y,
@@ -175,14 +210,14 @@ HTML_LAYOUT = """
                     isMask: true
                 });
 
-                // 2. Place editable IText directly above
+                // Editable text
                 const editableText = new fabric.IText(item.str, {
                     left: x,
                     top: y,
                     fontSize: fontSize,
                     fill: '#000000',
                     fontFamily: 'Helvetica, Arial, sans-serif',
-                    editable: true,
+                    editable: false,
                     selectable: true,
                     hasControls: true,
                     transparentCorners: false,
@@ -191,7 +226,21 @@ HTML_LAYOUT = """
                     pdfX: x / pageViewport.scale,
                     pdfY: (pageViewport.height - y - fontSize) / pageViewport.scale,
                     pdfFontSize: fontSize / pageViewport.scale,
-                    originalMask: whiteoutRect
+                    originalMask: whiteoutRect,
+                    isEditable: true
+                });
+
+                // Click handler for direct editing
+                editableText.on('mousedown', (e) => {
+                    if (e.e.detail === 2) { // Double click
+                        editableText.enterEditing();
+                        editableText.selectAll();
+                    }
+                });
+
+                // Single click to show popup editor
+                editableText.on('selected', () => {
+                    showTextEditPopup(editableText);
                 });
 
                 fabricCanvas.add(whiteoutRect);
@@ -199,12 +248,52 @@ HTML_LAYOUT = """
                 editableText.bringToFront();
                 
                 textElementsMap.push(editableText);
-                count++;
             });
 
             fabricCanvas.renderAll();
-            document.getElementById('btnExtract').disabled = true;
-            alert(`Success! Made ${count} text blocks editable. Click any text to edit or move it.`);
+        }
+
+        function showTextEditPopup(textObj) {
+            // Remove existing popup if any
+            const existingPopup = document.querySelector('.text-input-popup');
+            if (existingPopup) existingPopup.remove();
+
+            const popup = document.createElement('div');
+            popup.className = 'text-input-popup';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = textObj.text;
+            input.placeholder = 'Edit text here';
+            
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = 'Save';
+            
+            popup.appendChild(input);
+            popup.appendChild(saveBtn);
+            document.body.appendChild(popup);
+
+            // Position popup near text
+            const rect = fabricCanvas.getElement().getBoundingClientRect();
+            popup.style.left = (rect.left + textObj.left + 10) + 'px';
+            popup.style.top = (rect.top + textObj.top - 50) + 'px';
+
+            input.focus();
+            input.select();
+
+            const updateText = () => {
+                textObj.text = input.value || 'Text';
+                fabricCanvas.renderAll();
+                popup.remove();
+                fabricCanvas.discardActiveObject();
+                fabricCanvas.renderAll();
+            };
+
+            saveBtn.onclick = updateText;
+            input.onkeypress = (e) => {
+                if (e.key === 'Enter') updateText();
+            };
+            input.onblur = updateText;
         }
 
         function addNewText() {
@@ -214,17 +303,30 @@ HTML_LAYOUT = """
                 fontSize: 16,
                 fill: '#000000',
                 fontFamily: 'Helvetica, Arial, sans-serif',
-                editable: true,
+                editable: false,
                 selectable: true,
                 transparentCorners: false,
                 cornerColor: '#6366f1',
-                cornerSize: 6
+                cornerSize: 6,
+                isEditable: true
+            });
+
+            text.on('selected', () => {
+                showTextEditPopup(text);
+            });
+
+            text.on('mousedown', (e) => {
+                if (e.e.detail === 2) {
+                    text.enterEditing();
+                    text.selectAll();
+                }
             });
             
             fabricCanvas.add(text);
             fabricCanvas.setActiveObject(text);
             text.bringToFront();
             fabricCanvas.renderAll();
+            showTextEditPopup(text);
         }
 
         function deleteSelected() {
@@ -235,6 +337,7 @@ HTML_LAYOUT = """
                 }
                 fabricCanvas.remove(activeObj);
                 fabricCanvas.renderAll();
+                alert('Text deleted!');
             } else {
                 alert('Please click on a text block first to select it for deletion.');
             }
@@ -248,10 +351,8 @@ HTML_LAYOUT = """
                 const page = pdfDocLib.getPages()[0];
                 const font = await pdfDocLib.embedFont(PDFLib.StandardFonts.Helvetica);
 
-                // Option A: Full vector overlay preserving original quality
-                const objects = fabricCanvas.getObjects();
-                
                 // Draw masks to erase old text positions
+                const objects = fabricCanvas.getObjects();
                 for (const obj of objects) {
                     if (obj.isMask) {
                         const pdfX = obj.left / pageViewport.scale;
