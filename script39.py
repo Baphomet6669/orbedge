@@ -1,13 +1,13 @@
 import os
 import time
-import csv
 import json
 import threading
-import sys
-import random
-from flask import Blueprint, render_template_string, request, jsonify, Response
+import re
+from flask import Flask, Blueprint, render_template_string, request, jsonify
+from playwright.sync_api import sync_playwright
 
-# INITIALIZE ADVANCED SCRAPER TERMINAL BLUEPRINT ENGINE
+# Flask App Initialization
+app = Flask(__name__)
 script39_bp = Blueprint('script39', __name__, static_folder='static')
 COMPANY_BRAND = os.environ.get('COMPANY_NAME', 'Data Mining Terminal')
 
@@ -17,92 +17,144 @@ GLOBAL_LOG_BUFFERS = {}
 METRICS_LEDGER = {}
 SCRAPED_DATA_CACHE = {}
 
-class LiveScraperRuntimeSimulator:
+class RealPlaywrightMapsScraper:
     """
-    Handles background execution logs and maps real dynamic search context parameters.
-    Ensures complete, accurate parsing based strictly on the user's targeted keyword.
+    Directly automates a browser via Playwright to scrape real live data 
+    from Google Maps without any API keys.
     """
     def __init__(self, operation_id, query_string):
         self.op_id = operation_id
         self.query = query_string.strip()
         GLOBAL_LOG_BUFFERS[self.op_id] = []
         SCRAPED_DATA_CACHE[self.op_id] = []
-        METRICS_LEDGER[self.op_id] = {"status": "Assembling Node Layers...", "count": 0, "color": "#3B82F6", "runtime": 0}
+        METRICS_LEDGER[self.op_id] = {
+            "status": "Initializing Browser Engine...", 
+            "count": 0, 
+            "color": "#3B82F6", 
+            "runtime": 0
+        }
         
     def append_log(self, message):
         timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]")
-        GLOBAL_LOG_BUFFERS[self.op_id].append(f"{timestamp} Â» {message}")
+        GLOBAL_LOG_BUFFERS[self.op_id].append(f"{timestamp} » {message}")
 
     def execution_pipeline(self):
-        self.append_log("Initializing request routing handshake protocols...")
-        self.append_log("Simulating dynamic footprint header configurations to bypass firewalls...")
-        time.sleep(1.0)
-        
-        self.append_log(f"Connecting data pipeline stream to target map index for: '{self.query}'")
-        METRICS_LEDGER[self.op_id].update({"status": "Parsing Maps Index Buffer...", "color": "#F59E0B"})
-        time.sleep(1.5)
-        
-        self.append_log("Processing structural DOM trees for locations matching input parameters...")
-
-        # Parse query keyword and location dynamically to make data 100% relevant
-        if " in " in self.query.lower():
-            parts = self.query.lower().split(" in ")
-            target_keyword = parts[0].strip().upper()
-            target_location = parts[1].strip().title()
-        else:
-            target_keyword = self.query.upper()
-            target_location = "Local Area"
-        
-        # Generates exact context-aware realistic outputs based directly on input
-        mock_companies = [
-            {
-                "Name": f"{target_keyword} Premium Outlet Hub", 
-                "Phone": f"+91 {random.randint(70000, 99999)} {random.randint(10000, 99999)}", 
-                "Address": f"Commercial Sector G-Block, Near Metro Station, {target_location}", 
-                "Rating": f"{random.uniform(4.2, 4.9):.1f}"
-            },
-            {
-                "Name": f"Official {target_keyword.title()} Commercial Node", 
-                "Phone": f"+91 {random.randint(70000, 99999)} {random.randint(10000, 99999)}", 
-                "Address": f"Wave Galleria Center, Phase 2 Hub, {target_location}", 
-                "Rating": f"{random.uniform(3.9, 4.7):.1f}"
-            },
-            {
-                "Name": f"Express {target_keyword.title()} Distribution Point", 
-                "Phone": f"+91 {random.randint(70000, 99999)} {random.randint(10000, 99999)}", 
-                "Address": f"Smart City Business Galleria Complex, {target_location}", 
-                "Rating": f"{random.uniform(4.0, 4.8):.1f}"
-            },
-            {
-                "Name": f"{target_keyword.title()} & Allied Services Zone", 
-                "Phone": f"+91 {random.randint(70000, 99999)} {random.randint(10000, 99999)}", 
-                "Address": f"Main Corporate Avenue Tower, Block C, {target_location}", 
-                "Rating": f"{random.uniform(3.6, 4.4):.1f}"
-            }
-        ]
-        
-        self.append_log(f"Success! Extracted {len(mock_companies)} real entries matching your custom search parameter layout.")
+        self.append_log(f"Launching automated Playwright instance for query: '{self.query}'")
+        METRICS_LEDGER[self.op_id].update({"status": "Spawning Headless Browser...", "color": "#F59E0B"})
         start_time = time.time()
 
-        for idx, item in enumerate(mock_companies):
-            if not ACTIVE_OPERATIONS.get(self.op_id, False):
-                self.append_log("Termination sequence active. Safely dumping remaining operational nodes.")
-                break
-                
-            time.sleep(1.8)  # Human delay simulation to ensure flawless socket data rendering
-            SCRAPED_DATA_CACHE[self.op_id].append(item)
-            
-            elapsed = int(time.time() - start_time)
-            METRICS_LEDGER[self.op_id].update({
-                "status": f"Mining Business Target ({idx+1}/{len(mock_companies)})...",
-                "count": idx + 1,
-                "runtime": elapsed
-            })
-            self.append_log(f"Extracted Entity: {item['Name']} | Node Contact Connected.")
+        try:
+            with sync_playwright() as p:
+                # Launch Headless Chromium
+                browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+                context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                page = context.new_page()
 
-        if ACTIVE_OPERATIONS.get(self.op_id, False):
-            METRICS_LEDGER[self.op_id].update({"status": "Extraction Complete / Idle", "color": "#10B981"})
-            self.append_log("Process execution cycle finished perfectly. Ready for format export.")
+                # Navigate to Google Maps
+                search_url = f"https://www.google.com/maps/search/{self.query.replace(' ', '+')}"
+                self.append_log(f"Navigating to live stream map grid...")
+                page.goto(search_url, timeout=60000)
+                page.wait_for_timeout(4000)
+
+                # Scroll down results pane to load items
+                self.append_log("Parsing live DOM element nodes...")
+                try:
+                    scrollable_div = page.locator('div[role="feed"]')
+                    for _ in range(3):
+                        scrollable_div.evaluate("node => node.scrollBy(0, 1000)")
+                        page.wait_for_timeout(1000)
+                except Exception:
+                    pass # Continue if scrolling selector varies
+
+                # Target business cards
+                cards = page.locator('a[href*="/maps/place/"]').all()
+                self.append_log(f"Detected {len(cards)} matching target business nodes.")
+
+                extracted_count = 0
+                seen_names = set()
+
+                for idx, card in enumerate(cards):
+                    if not ACTIVE_OPERATIONS.get(self.op_id, False):
+                        self.append_log("Process execution halted by user command.")
+                        break
+
+                    try:
+                        # Extract basic text info from card
+                        aria_label = card.get_attribute("aria-label")
+                        if aria_label and aria_label not in seen_names:
+                            name = aria_label
+                            seen_names.add(name)
+
+                            # Click card to load detail side panel
+                            card.click(timeout=3000)
+                            page.wait_for_timeout(2000)
+
+                            # Extract Rating
+                            rating = "N/A"
+                            try:
+                                rating_elem = page.locator('span[aria-hidden="true"]').first
+                                if rating_elem.is_visible():
+                                    val = rating_elem.inner_text().strip()
+                                    if re.match(r'^\d\.\d$', val):
+                                        rating = val
+                            except Exception:
+                                pass
+
+                            # Extract Phone Number
+                            phone = "Contact Not Listed"
+                            try:
+                                phone_elem = page.locator('button[data-tooltip*="phone"], button[aria-label*="Phone"]').first
+                                if phone_elem.is_visible():
+                                    phone_text = phone_elem.get_attribute("aria-label") or phone_elem.inner_text()
+                                    phone = phone_text.replace("Phone: ", "").strip()
+                            except Exception:
+                                pass
+
+                            # Extract Address
+                            address = "Address Available on Map"
+                            try:
+                                addr_elem = page.locator('button[data-item-id="address"]').first
+                                if addr_elem.is_visible():
+                                    addr_text = addr_elem.get_attribute("aria-label") or addr_elem.inner_text()
+                                    address = addr_text.replace("Address: ", "").strip()
+                            except Exception:
+                                pass
+
+                            item = {
+                                "Name": name,
+                                "Phone": phone,
+                                "Address": address,
+                                "Rating": rating
+                            }
+
+                            SCRAPED_DATA_CACHE[self.op_id].append(item)
+                            extracted_count += 1
+
+                            elapsed = int(time.time() - start_time)
+                            METRICS_LEDGER[self.op_id].update({
+                                "status": f"Mining Business Target ({extracted_count})...",
+                                "count": extracted_count,
+                                "runtime": elapsed
+                            })
+                            self.append_log(f"Extracted Entity: {name} | Phone: {phone}")
+
+                    except Exception as e:
+                        continue
+
+                browser.close()
+
+                if ACTIVE_OPERATIONS.get(self.op_id, False):
+                    if extracted_count == 0:
+                        METRICS_LEDGER[self.op_id].update({"status": "No Nodes Extracted", "color": "#EF4444"})
+                        self.append_log("No structural data cards were found for this query.")
+                    else:
+                        METRICS_LEDGER[self.op_id].update({"status": "Extraction Complete / Idle", "color": "#10B981"})
+                        self.append_log("Live data scraping finished successfully.")
+
+        except Exception as err:
+            self.append_log(f"Scraper Runtime Fault: {str(err)}")
+            METRICS_LEDGER[self.op_id].update({"status": "Execution Error", "color": "#EF4444"})
+
         ACTIVE_OPERATIONS[self.op_id] = False
 
 @script39_bp.route('/')
@@ -120,7 +172,7 @@ def api_start_scraper():
         operation_id = f"OP_{int(time.time() * 1000)}"
         ACTIVE_OPERATIONS[operation_id] = True
         
-        worker = LiveScraperRuntimeSimulator(operation_id, query)
+        worker = RealPlaywrightMapsScraper(operation_id, query)
         threading.Thread(target=worker.execution_pipeline, daemon=True).start()
         
         return jsonify({"success": True, "op_id": operation_id}), 200
@@ -160,7 +212,7 @@ HTML_WORKSPACE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ company }} | Intelligence Data Core</title>
+    <title>{{ company }} | Live Data Intelligence Core</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -208,7 +260,7 @@ HTML_WORKSPACE = """
                 </div>
                 <div>
                     <h1 class="font-black text-base tracking-widest uppercase title-text">Orbitedgemedia</h1>
-                    <span class="text-[9px] block text-blue-500 font-mono tracking-widest font-bold">LIVE MAPS DATA SCRAPER CORE</span>
+                    <span class="text-[9px] block text-blue-500 font-mono tracking-widest font-bold">REAL-TIME NO-API MAPS SCRAPER</span>
                 </div>
             </div>
             <button onclick="toggleVisualThemeStyle()" class="sm:hidden p-2 rounded-lg border border-[var(--border-color)] bg-black/20 text-blue-500">
@@ -225,11 +277,10 @@ HTML_WORKSPACE = """
 
     <main class="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
         
-        <!-- SEARCH CONFIGURATION -->
         <div class="card-widget p-6 rounded-2xl shadow-xl space-y-4">
             <h3 class="text-xs font-bold uppercase tracking-wider muted-text font-mono"><i class="fa-solid fa-crosshairs text-blue-500 mr-1.5"></i> Target Search Query Configuration</h3>
             <div class="flex flex-col sm:flex-row gap-3">
-                <input type="text" id="targetQueryInput" placeholder="e.g., KFC in Noida" value="KFC in Noida" 
+                <input type="text" id="targetQueryInput" placeholder="e.g., Hotels in Mumbai" value="Hotels in Mumbai" 
                        class="flex-1 px-4 py-3 text-xs font-mono rounded-xl input-widget focus:outline-none focus:border-blue-500">
                 <button id="btnActionLaunch" onclick="toggleExtractionMatrix()" class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition cursor-pointer shadow-lg shadow-blue-600/20">
                     LAUNCH EXTRACTION
@@ -237,11 +288,10 @@ HTML_WORKSPACE = """
             </div>
         </div>
 
-        <!-- ANALYTICS BOXES -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div class="card-widget p-5 rounded-2xl shadow-md flex items-center justify-between">
                 <div>
-                    <span class="text-[10px] font-mono uppercase tracking-wider muted-text block mb-1">Core Engine State</span>
+                    <span class="text-[10px] font-mono uppercase tracking-wider muted-text block mb-1">Engine Status</span>
                     <div class="flex items-center gap-2">
                         <span id="metricStatusText" class="text-sm font-bold title-text font-mono">Engine Standing By</span>
                     </div>
@@ -250,46 +300,43 @@ HTML_WORKSPACE = """
             </div>
             <div class="card-widget p-5 rounded-2xl shadow-md flex items-center justify-between">
                 <div>
-                    <span class="text-[10px] font-mono uppercase tracking-wider muted-text block mb-1">Valid Extractions Matched</span>
+                    <span class="text-[10px] font-mono uppercase tracking-wider muted-text block mb-1">Live Records Scraping</span>
                     <span id="metricCounterText" class="text-2xl font-black font-mono text-emerald-500">000</span>
                 </div>
                 <i class="fa-solid fa-chart-bar opacity-10 text-3xl title-text"></i>
             </div>
         </div>
 
-        <!-- SYSTEM DIAGNOSTIC LOGS -->
         <div class="card-widget p-5 rounded-2xl shadow-xl">
-            <h3 class="text-xs font-bold uppercase tracking-wider muted-text font-mono mb-3"><i class="fa-solid fa-bug-slash text-blue-500 mr-1.5"></i> Real-Time Diagnostic System Logs</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider muted-text font-mono mb-3"><i class="fa-solid fa-bug-slash text-blue-500 mr-1.5"></i> Diagnostic Live Logs</h3>
             <div id="consoleLogsBox" class="w-full h-36 p-4 rounded-xl bg-black border border-[var(--border-color)] overflow-y-auto font-mono text-xs text-slate-400 space-y-1.5">
-                [SYSTEM LOG]: Core engine ready. Enter target values and spin up the live array module.
+                [SYSTEM LOG]: Core engine ready. Launch extraction process.
             </div>
         </div>
 
-        <!-- REPOSITORY RESULTS TABLE -->
         <div class="card-widget rounded-2xl overflow-hidden shadow-2xl">
             <div class="px-5 py-4 border-b border-[var(--border-color)]">
-                <h3 class="text-xs font-bold uppercase tracking-wider muted-text font-mono"><i class="fa-solid fa-database text-blue-500 mr-1.5"></i> Live Repository Preview</h3>
+                <h3 class="text-xs font-bold uppercase tracking-wider muted-text font-mono"><i class="fa-solid fa-database text-blue-500 mr-1.5"></i> Real-Time Scraped Data</h3>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full font-mono text-xs text-left">
                     <thead class="bg-black/40 text-[11px] muted-text border-b border-[var(--border-color)] uppercase">
                         <tr>
-                            <th class="px-6 py-3.5 font-bold">Target Identity Name</th>
-                            <th class="px-6 py-3.5 font-bold">Contact Node</th>
-                            <th class="px-6 py-3.5 font-bold">Physical Address Grid</th>
-                            <th class="px-6 py-3.5 font-bold">Trust Score / Rating</th>
+                            <th class="px-6 py-3.5 font-bold">Business Name</th>
+                            <th class="px-6 py-3.5 font-bold">Contact Phone</th>
+                            <th class="px-6 py-3.5 font-bold">Physical Address</th>
+                            <th class="px-6 py-3.5 font-bold">Rating</th>
                         </tr>
                     </thead>
                     <tbody id="dataTableBodyRows" class="divide-y divide-[var(--border-color)] title-text">
                         <tr>
-                            <td colspan="4" class="px-6 py-10 text-center font-mono muted-text">No active nodes stored in temporary cache stream.</td>
+                            <td colspan="4" class="px-6 py-10 text-center font-mono muted-text">No active entries harvested yet.</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <!-- REPOSITORY FOOTER EXPORT ACTION -->
         <div class="card-widget p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
             <div class="text-xs font-mono font-bold text-blue-500" id="metricTimerText">
                 Operation Runtime: 00:00:00
@@ -326,9 +373,7 @@ HTML_WORKSPACE = """
                 await fetch(`/api/stop/${globalOperationId}`, { method: 'POST' });
                 globalOperationId = null;
                 isOperationRunning = false;
-                launchBtn.innerText = "LAUNCH EXTRACTION";
-                launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
-                launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
+                resetButton();
                 return;
             }
 
@@ -350,23 +395,25 @@ HTML_WORKSPACE = """
                 if (res.success) {
                     globalOperationId = res.op_id;
                     isOperationRunning = true;
-                    document.getElementById('consoleLogsBox').innerHTML = `<div class="text-blue-400">[SYSTEM INDEX]: Stream pipeline successfully bound to operation ID: ${globalOperationId}</div>`;
+                    document.getElementById('consoleLogsBox').innerHTML = `<div class="text-blue-400">[SYSTEM INDEX]: Browser automation process initiated (ID: ${globalOperationId})</div>`;
                     internalPollingClock = setInterval(pollScraperBackendMetrics, 1000);
                 } else {
                     alert('Error: ' + res.error);
-                    launchBtn.innerText = "LAUNCH EXTRACTION";
-                    launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
-                    launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
-                    isOperationRunning = false;
+                    resetButton();
                 }
             } catch(error) {
                 console.error('Error:', error);
                 alert('Error: ' + error.message);
-                launchBtn.innerText = "LAUNCH EXTRACTION";
-                launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
-                launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
-                isOperationRunning = false;
+                resetButton();
             }
+        }
+
+        function resetButton() {
+            const launchBtn = document.getElementById('btnActionLaunch');
+            launchBtn.innerText = "LAUNCH EXTRACTION";
+            launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
+            launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
+            isOperationRunning = false;
         }
 
         async function pollScraperBackendMetrics() {
@@ -390,7 +437,7 @@ HTML_WORKSPACE = """
                 localMasterCacheData = res.data;
                 const tableBody = document.getElementById('dataTableBodyRows');
                 if (localMasterCacheData.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="4" class="px-6 py-10 text-center font-mono muted-text">Scraping data layers asynchronously... Please wait.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="4" class="px-6 py-10 text-center font-mono muted-text">Scraping elements from live Google Maps pane... Please wait.</td></tr>`;
                 } else {
                     tableBody.innerHTML = localMasterCacheData.map(row => `
                         <tr class="hover:bg-black/20 transition">
@@ -409,11 +456,7 @@ HTML_WORKSPACE = """
                 if (!res.is_running) {
                     clearInterval(internalPollingClock);
                     globalOperationId = null;
-                    isOperationRunning = false;
-                    const launchBtn = document.getElementById('btnActionLaunch');
-                    launchBtn.innerText = "LAUNCH EXTRACTION";
-                    launchBtn.classList.remove("bg-rose-600", "hover:bg-rose-500");
-                    launchBtn.classList.add("bg-blue-600", "hover:bg-blue-500");
+                    resetButton();
                 }
             } catch(error) {
                 console.error('Poll error:', error);
@@ -422,7 +465,7 @@ HTML_WORKSPACE = """
 
         function downloadMasterArchive() {
             if (localMasterCacheData.length === 0) {
-                return alert("Export Exception: Local download dataset allocation mapping block is currently empty.");
+                return alert("Export Exception: Local dataset allocation block is currently empty.");
             }
 
             const format = document.getElementById('exportFormatDropdown').value;
@@ -450,3 +493,9 @@ HTML_WORKSPACE = """
 </body>
 </html>
 """
+
+# Register Blueprint & Launch App
+app.register_blueprint(script39_bp)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
