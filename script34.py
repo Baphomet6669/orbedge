@@ -52,7 +52,7 @@ def get_default_structure():
     }
 
 def db_read():
-    """Fetch data from local JSON database engine"""
+    """Local JSON Engine se data fetch karta hai"""
     with db_lock:
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r') as f:
@@ -67,7 +67,7 @@ def db_read():
         return get_default_structure()
 
 def db_write(data):
-    """Write or update data into local JSON database engine"""
+    """Local JSON Engine par data update (dump) karta hai"""
     with db_lock:
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
@@ -372,7 +372,7 @@ def process_lead_automation():
     message_template = request.form.get('message', '')
     
     if not selected_ids:
-        return jsonify({'success': False, 'message': 'No leads were selected.'})
+        return jsonify({'success': False, 'message': 'Koi leads select nahi kiye gaye.'})
         
     imported_count = 0
     for lead in db.get('leads', []):
@@ -464,9 +464,9 @@ def upload_automation_sheet():
             imported_count += 1
             
         db_write(db)
-        return jsonify({'success': True, 'message': f'Successfully parsed {imported_count} contacts into Pipeline system!'})
+        return jsonify({'success': True, 'message': f'Successfully parsed {imported_count} contacts & perfectly linked into Pipeline system!'})
         
-    return jsonify({'success': False, 'message': 'Invalid file format.'})
+    return jsonify({'success': False, 'message': 'Invalid file layout format.'})
 
 app.register_blueprint(script34_bp, url_prefix='/')
 
@@ -1627,15 +1627,15 @@ HTML_LAYOUT = """
 
         function syncToLocalCalendar() {
             if(rawTasks.length === 0) return alert("No operational strategic milestones found to export.");
-            let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//OrbitEdge Media CRM//EN\r\n";
+            let icsContent = "BEGIN:VCALENDAR\\nVERSION:2.0\\nPRODID:-//OrbitEdge Media CRM//EN\\n";
             rawTasks.forEach(t => {
                 let cleanDate = t.due_date.replace(/-/g, "");
-                icsContent += "BEGIN:VEVENT\r\n";
-                icsContent += `SUMMARY:[${t.type || 'Task'}] ${t.title}\r\n`;
-                icsContent += `DTSTART:${cleanDate}T090000\r\n`;
-                icsContent += `DTEND:${cleanDate}T100000\r\n`;
-                icsContent += "DESCRIPTION:Automated Synchronization Rule from OrbitEdge CRM Platform Layout.\r\n";
-                icsContent += "END:VEVENT\r\n";
+                icsContent += "BEGIN:VEVENT\\n";
+                icsContent += `SUMMARY:[${t.type || 'Task'}] ${t.title}\\n`;
+                icsContent += `DTSTART:${cleanDate}T090000\\n`;
+                icsContent += `DTEND:${cleanDate}T100000\\n`;
+                icsContent += "DESCRIPTION:Automated Synchronization Rule from OrbitEdge CRM Platform Layout.\\n";
+                icsContent += "END:VEVENT\\n";
             });
             icsContent += "END:VCALENDAR";
             let link = document.createElement("a");
@@ -1710,7 +1710,7 @@ HTML_LAYOUT = """
 
         function triggerPaymentReminder(client, amount) {
             let alertMsg = `Dear ${client}, this is an automated courtesy prompt regarding pending invoice balance payload of ₹${amount}. Kindly process the settlement channels.`;
-            alert(`Payment Reminder Triggered:\n\n"${alertMsg}"`);
+            alert(`Payment Reminder Triggered:\\n\\n"${alertMsg}"`);
         }
 
         async function loadReportsEngine() {
@@ -1795,8 +1795,8 @@ HTML_LAYOUT = """
         
         function exportLeadsToCSV() {
             if (rawLeads.length === 0) return alert("No entries found!");
-            let csv = "ID,Name,Company,Email,Phone,Status,Value\n";
-            rawLeads.forEach(l => { csv += `${l.id},"${l.name}","${l.company}",${l.email},${l.phone},${l.status},${l.value}\n`; });
+            let csv = "ID,Name,Company,Email,Phone,Status,Value\\n";
+            rawLeads.forEach(l => { csv += `${l.id},"${l.name}","${l.company}",${l.email},${l.phone},${l.status},${l.value}\\n`; });
             let link = document.createElement("a"); link.setAttribute("href", encodeURI("data:text/csv;charset=utf-8," + csv));
             link.setAttribute("download", "CRM_Leads.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
         }
@@ -1851,27 +1851,37 @@ HTML_LAYOUT = """
                     tasksData.push([t.id, t.title, t.type || 'Task', t.due_date, t.priority, t.status]);
                 });
                 let wsTasks = XLSX.utils.aoa_to_sheet(tasksData);
-                XLSX.utils.book_append_sheet(wb, wsTasks, "Tasks & Reminders");
+                XLSX.utils.book_append_sheet(wb, wsTasks, "Operational Roadmap");
 
-                XLSX.writeFile(wb, "OrbitEdge_CRM_Complete_Data.xlsx");
-                popToast("Complete CRM Excel workbook generated!");
+                XLSX.writeFile(wb, `OrbitEdge_Complete_CRM_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                popToast("Excel Multi-Sheet compiled perfectly!");
             } catch (err) {
-                console.error("Export Error:", err);
-                alert("Failed to compile Excel export framework.");
+                console.error("Critical Excel Packaging Exception:", err);
+                alert("Failed to export complete Excel report data layers.");
             }
         }
 
-        function exportFullCRMToPDF() {
-            let element = document.getElementById('exportable-main-area');
-            let opt = {
-                margin:       0.3,
-                filename:     'OrbitEdge_CRM_Dashboard_Report.pdf',
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true },
-                jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
+        async function exportFullCRMToPDF() {
+            const mainContainer = document.getElementById('exportable-main-area');
+            if (!mainContainer) return alert("System Anchor reference broken down.");
+            
+            popToast("Preparing High-Res Executive PDF document structure...");
+
+            let pdfOptions = {
+                margin: [10, 10, 10, 10],
+                filename: `OrbitEdge_CRM_Executive_Summary_${new Date().toISOString().slice(0,10)}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { 
+                    scale: 2, 
+                    useCORS: true, 
+                    backgroundColor: document.body.classList.contains('dark-mode') ? '#030712' : '#f3f4f6' 
+                },
+                jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' }
             };
-            html2pdf().set(opt).from(element).save();
-            popToast("Exporting Dashboard to PDF layout...");
+
+            html2pdf().set(pdfOptions).from(mainContainer).save().then(() => {
+                popToast("Executive PDF Export completed!");
+            });
         }
     </script>
 {% endif %}
@@ -1879,8 +1889,5 @@ HTML_LAYOUT = """
 </html>
 """
 
-# =========================================================================
-# APPLICATION ENTRYPOINT
-# =========================================================================
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, port=5000)
