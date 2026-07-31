@@ -1,15 +1,16 @@
 import os
 import time
-import json
 import base64
+import io
 import fitz  # PyMuPDF
 from PIL import Image
-from flask import Blueprint, render_template_string, request, jsonify, send_file, io
+from flask import Flask, Blueprint, render_template_string, request, jsonify, send_file
 
 # ==========================================
-# INITIALIZE SCRIPT 44 BLUEPRINT ENGINE
+# INITIALIZE FLASK APP & BLUEPRINT
 # ==========================================
-script44_bp = Blueprint('script44', __name__, static_folder='static')
+app = Flask(__name__)
+script44_bp = Blueprint('script44', __name__)
 COMPANY_BRAND = os.environ.get('COMPANY_NAME', 'Data Mining Terminal')
 
 # In-Memory Cache Store for PDF sessions
@@ -121,7 +122,7 @@ class PurePythonPDFEngine:
 
 
 # ==========================================
-# BLUEPRINT ROUTES
+# BLUEPRINT & FLASK ROUTES
 # ==========================================
 @script44_bp.route('/')
 def index():
@@ -364,7 +365,7 @@ HTML_WORKSPACE = """
             document.getElementById('statusLbl').innerText = "Status: Uploading and rendering PDF...";
 
             try {
-                const response = await fetch('/script44/api/upload', {
+                const response = await fetch('/api/upload', {
                     method: 'POST',
                     body: formData
                 });
@@ -417,7 +418,7 @@ HTML_WORKSPACE = """
             if (!currentSessionId) return;
 
             try {
-                const response = await fetch('/script44/api/render', {
+                const response = await fetch('/api/render', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -449,7 +450,7 @@ HTML_WORKSPACE = """
             if (!currentSessionId) return;
 
             try {
-                const response = await fetch('/script44/api/extract_text', {
+                const response = await fetch('/api/extract_text', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -593,7 +594,7 @@ HTML_WORKSPACE = """
             if (!currentSessionId) return;
 
             try {
-                const response = await fetch('/script44/api/export', {
+                const response = await fetch('/api/export', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -625,4 +626,11 @@ HTML_WORKSPACE = """
 </body>
 </html>
 """
+
+# Register Blueprint & Start Application Direct
+app.register_blueprint(script44_bp)
+
+if __name__ == '__main__':
+    print("PDF Editor Launching on http://127.0.0.1:5000/ ...")
+    app.run(host='0.0.0.0', port=5000, debug=True)
 
