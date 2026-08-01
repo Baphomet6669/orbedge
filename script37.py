@@ -109,8 +109,8 @@ HTML_TEMPLATE = '''
                         </span>
                     </div>
 
-                    <button onclick="startBulkDispatch(event)" id="btnDispatch" type="button"
-                            class="w-full py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2 cursor-pointer">
+                    <button type="button" id="btnDispatch" onclick="startBulkDispatch()"
+                            class="w-full py-3.5 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white font-bold rounded-xl text-xs uppercase tracking-widest transition shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2 cursor-pointer">
                         <i class="fa-solid fa-paper-plane"></i> START BULK DISPATCH
                     </button>
                 </div>
@@ -131,83 +131,81 @@ HTML_TEMPLATE = '''
     </main>
 
     <script>
-        async function startBulkDispatch(e) {
-            if(e) e.preventDefault();
+        async function startBulkDispatch() {
+            try {
+                const apiKey = document.getElementById('apiKey').value.trim();
+                const fromEmail = document.getElementById('fromEmail').value.trim();
+                const fromName = document.getElementById('fromName').value.trim();
+                const subject = document.getElementById('subject').value.trim();
+                const htmlBody = document.getElementById('htmlBody').value.trim();
+                const recipientsRaw = document.getElementById('recipients').value.trim();
 
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const fromEmail = document.getElementById('fromEmail').value.trim();
-            const fromName = document.getElementById('fromName').value.trim();
-            const subject = document.getElementById('subject').value.trim();
-            const htmlBody = document.getElementById('htmlBody').value.trim();
-            const recipientsRaw = document.getElementById('recipients').value.trim();
-
-            if(!apiKey) return alert("Resend API key missing hai!");
-            if(!fromEmail || !subject || !htmlBody || !recipientsRaw) {
-                return alert("Sabhi fields bharo (From Email, Subject, Body, Recipients)!");
-            }
-
-            // Clean & Split recipient list
-            const emailsList = recipientsRaw.split(/[\n,]+/).map(e => e.trim()).filter(e => e.length > 3);
-            if(emailsList.length === 0) return alert("Valid email address enter karo!");
-
-            const btn = document.getElementById('btnDispatch');
-            const logBox = document.getElementById('consoleLog');
-            logBox.innerHTML = '';
-            
-            btn.disabled = true;
-            btn.innerText = "PROCESSING DISPATCH...";
-            btn.classList.add('opacity-50', 'cursor-not-allowed');
-            
-            appendLog(`[INIT] Target queue: ${emailsList.length} recipient(s)...`, 'sky');
-
-            let successCount = 0;
-
-            // Route Path Auto Resolution
-            let currentPath = window.location.pathname.replace(/\/+$/, '');
-            const targetEndpoint = currentPath + '/send-single-email';
-
-            for (let i = 0; i < emailsList.length; i++) {
-                const targetEmail = emailsList[i];
-                appendLog(`[SENDING] (${i+1}/${emailsList.length}) -> ${targetEmail}`, 'gray');
-
-                try {
-                    const payload = {
-                        api_key: apiKey,
-                        from_email: fromEmail,
-                        from_name: fromName,
-                        to_email: targetEmail,
-                        subject: subject,
-                        html_body: htmlBody
-                    };
-
-                    const response = await fetch(targetEndpoint, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    const resData = await response.json();
-
-                    if (response.ok && resData.success) {
-                        successCount++;
-                        appendLog(`[SUCCESS] Email Delivered! | Resend ID: ${resData.id}`, 'emerald');
-                    } else {
-                        appendLog(`[ERROR] ${targetEmail}: ${resData.error || 'Request Rejected'}`, 'red');
-                    }
-                } catch (err) {
-                    appendLog(`[FAIL] Network/Internal Error: ${err.message}`, 'red');
+                if(!apiKey) return alert("Resend API key missing hai!");
+                if(!fromEmail || !subject || !htmlBody || !recipientsRaw) {
+                    return alert("Sabhi fields bharo (From Email, Subject, Body, Recipients)!");
                 }
 
-                document.getElementById('badgeCount').innerText = `${successCount}/${emailsList.length} SENT`;
-                
-                // Rate-limiting pause
-                await new Promise(r => setTimeout(r, 400));
-            }
+                // Clean & Split recipient list
+                const emailsList = recipientsRaw.split(/[\n,]+/).map(e => e.trim()).filter(e => e.length > 3);
+                if(emailsList.length === 0) return alert("Valid email address enter karo!");
 
-            appendLog(`[COMPLETE] Bulk process finished successfully.`, 'yellow');
-            btn.disabled = false;
-            btn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> START BULK DISPATCH`;
-            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                const btn = document.getElementById('btnDispatch');
+                const logBox = document.getElementById('consoleLog');
+                logBox.innerHTML = '';
+                
+                btn.disabled = true;
+                btn.innerText = "PROCESSING DISPATCH...";
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                appendLog(`[INIT] Target queue: ${emailsList.length} recipient(s)...`, 'sky');
+
+                let successCount = 0;
+
+                for (let i = 0; i < emailsList.length; i++) {
+                    const targetEmail = emailsList[i];
+                    appendLog(`[SENDING] (${i+1}/${emailsList.length}) -> ${targetEmail}`, 'gray');
+
+                    try {
+                        const payload = {
+                            api_key: apiKey,
+                            from_email: fromEmail,
+                            from_name: fromName,
+                            to_email: targetEmail,
+                            subject: subject,
+                            html_body: htmlBody
+                        };
+
+                        const response = await fetch('./send-single-email', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        const resData = await response.json();
+
+                        if (response.ok && resData.success) {
+                            successCount++;
+                            appendLog(`[SUCCESS] Email Delivered! | Resend ID: ${resData.id}`, 'emerald');
+                        } else {
+                            appendLog(`[ERROR] ${targetEmail}: ${resData.error || 'Request Rejected'}`, 'red');
+                        }
+                    } catch (err) {
+                        appendLog(`[FAIL] Network Error: ${err.message}`, 'red');
+                    }
+
+                    document.getElementById('badgeCount').innerText = `${successCount}/${emailsList.length} SENT`;
+                    
+                    // Delay between emails
+                    await new Promise(r => setTimeout(r, 400));
+                }
+
+                appendLog(`[COMPLETE] Bulk process finished successfully.`, 'yellow');
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> START BULK DISPATCH`;
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } catch (err) {
+                alert("JS Error: " + err.message);
+            }
         }
 
         function appendLog(msg, color) {
@@ -270,7 +268,6 @@ def send_single_email():
         if res.status_code in [200, 201]:
             return jsonify({"success": True, "id": res_json.get("id", "N/A")})
         else:
-            # Clean error string parsing
             error_msg = res_json.get("message") or res_json.get("name") or "API Dispatch Rejected"
             return jsonify({"success": False, "error": error_msg}), res.status_code
 
