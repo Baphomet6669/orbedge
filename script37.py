@@ -37,7 +37,7 @@ HTML_TEMPLATE = '''
             </div>
         </div>
         <div class="text-xs font-mono text-emerald-400">
-            <i class="fa-solid fa-circle-check animate-pulse"></i> RESEND API v1 READY
+            <i class="fa-solid fa-circle-check animate-pulse"></i> RESEND API ACTIVE
         </div>
     </header>
 
@@ -56,7 +56,7 @@ HTML_TEMPLATE = '''
                     <div class="space-y-3 font-mono text-xs">
                         <div>
                             <label class="block text-gray-400 mb-1">Resend API Key</label>
-                            <input type="password" id="apiKey" value="re_LxwV9AWo_H4Y6q5pc2E1YMCSygn7xZQSY" 
+                            <input type="text" id="apiKey" value="re_JXabkTKo_3xcJxvvXc669KURVM9QWXzqp" 
                                    class="w-full px-4 py-2.5 rounded-xl inner-input font-bold text-sky-400" placeholder="re_...">
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -82,13 +82,13 @@ HTML_TEMPLATE = '''
                     <div class="space-y-3 font-mono text-xs">
                         <div>
                             <label class="block text-gray-400 mb-1">Subject Line</label>
-                            <input type="text" id="subject" placeholder="Important Update Regarding Your Account" value="Test Subject from Script37"
+                            <input type="text" id="subject" placeholder="Important Update Regarding Your Account" value="Test Campaign - Script37"
                                    class="w-full px-4 py-2.5 rounded-xl inner-input font-bold text-white">
                         </div>
                         <div>
                             <label class="block text-gray-400 mb-1">Email Body (HTML or Plain Text)</label>
-                            <textarea id="htmlBody" rows="7" placeholder="<h2>Hello!</h2><p>This is a bulk test email from Script37.</p>"
-                                      class="w-full p-4 rounded-xl inner-input text-gray-200 font-sans text-sm"><h2>Hello!</h2><p>This is a bulk test email from Script37 Engine.</p></textarea>
+                            <textarea id="htmlBody" rows="7" placeholder="<h2>Hello!</h2><p>This is a test email.</p>"
+                                      class="w-full p-4 rounded-xl inner-input text-gray-200 font-sans text-sm"><h2>Hello!</h2><p>This email was dispatched via Script37 Resend Engine.</p></textarea>
                         </div>
                     </div>
                 </div>
@@ -104,7 +104,9 @@ HTML_TEMPLATE = '''
                     <div>
                         <textarea id="recipients" rows="8" placeholder="user1@example.com&#10;user2@example.com"
                                   class="w-full p-4 rounded-xl inner-input font-mono text-xs leading-relaxed"></textarea>
-                        <span class="text-[10px] text-gray-500 font-mono mt-1 block">Note: onboarding@resend.dev use kar rahe ho toh sirf apne registered email par test bhejo.</span>
+                        <span class="text-[10px] text-gray-400 font-mono mt-1 block">
+                            <i class="fa-solid fa-circle-info text-sky-400"></i> Free testing mode (onboarding@resend.dev) par email sirf Resend registered owner ID par hi deliver hoga. Custom domain add karne par kisi bhi recipient ko ja sakta hai.
+                        </span>
                     </div>
 
                     <button onclick="startBulkDispatch(event)" id="btnDispatch" type="button"
@@ -120,7 +122,7 @@ HTML_TEMPLATE = '''
                         <span id="badgeCount" class="text-[10px] font-mono bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded font-bold">0 SENT</span>
                     </div>
                     <div id="consoleLog" class="h-40 overflow-y-auto bg-black/50 border border-gray-800 rounded-xl p-3 font-mono text-[11px] space-y-1.5 text-gray-400">
-                        <div class="text-gray-600 italic">// Console ready. Fill details & click dispatch.</div>
+                        <div class="text-gray-600 italic">// Engine initialized. Click dispatch to start.</div>
                     </div>
                 </div>
             </div>
@@ -139,33 +141,34 @@ HTML_TEMPLATE = '''
             const htmlBody = document.getElementById('htmlBody').value.trim();
             const recipientsRaw = document.getElementById('recipients').value.trim();
 
-            if(!apiKey) return alert("Bhai, Resend API key missing hai!");
+            if(!apiKey) return alert("Resend API key missing hai!");
             if(!fromEmail || !subject || !htmlBody || !recipientsRaw) {
                 return alert("Sabhi fields bharo (From Email, Subject, Body, Recipients)!");
             }
 
-            // Extract Emails safely
-            const emailsList = recipientsRaw.split(/[\\n,]+/).map(e => e.trim()).filter(e => e.length > 3);
-            if(emailsList.length === 0) return alert("Valid email addresses enter karo!");
+            // Clean & Split recipient list
+            const emailsList = recipientsRaw.split(/[\n,]+/).map(e => e.trim()).filter(e => e.length > 3);
+            if(emailsList.length === 0) return alert("Valid email address enter karo!");
 
             const btn = document.getElementById('btnDispatch');
             const logBox = document.getElementById('consoleLog');
             logBox.innerHTML = '';
             
             btn.disabled = true;
-            btn.innerText = "DISPATCHING...";
+            btn.innerText = "PROCESSING DISPATCH...";
             btn.classList.add('opacity-50', 'cursor-not-allowed');
             
-            appendLog(`[INIT] Starting dispatch for ${emailsList.length} address(es)...`, 'sky');
+            appendLog(`[INIT] Target queue: ${emailsList.length} recipient(s)...`, 'sky');
 
             let successCount = 0;
 
-            // Route relative path handling
-            const targetEndpoint = window.location.pathname.replace(/\\/+$/, '') + '/send-single-email';
+            // Route Path Auto Resolution
+            let currentPath = window.location.pathname.replace(/\/+$/, '');
+            const targetEndpoint = currentPath + '/send-single-email';
 
             for (let i = 0; i < emailsList.length; i++) {
                 const targetEmail = emailsList[i];
-                appendLog(`[SENDING] (${i+1}/${emailsList.length}) to ${targetEmail}...`, 'gray');
+                appendLog(`[SENDING] (${i+1}/${emailsList.length}) -> ${targetEmail}`, 'gray');
 
                 try {
                     const payload = {
@@ -187,21 +190,21 @@ HTML_TEMPLATE = '''
 
                     if (response.ok && resData.success) {
                         successCount++;
-                        appendLog(`[SUCCESS] Sent to ${targetEmail} | Resend ID: ${resData.id}`, 'emerald');
+                        appendLog(`[SUCCESS] Email Delivered! | Resend ID: ${resData.id}`, 'emerald');
                     } else {
-                        appendLog(`[ERROR] Failed for ${targetEmail}: ${resData.error || 'API Error'}`, 'red');
+                        appendLog(`[ERROR] ${targetEmail}: ${resData.error || 'Request Rejected'}`, 'red');
                     }
                 } catch (err) {
-                    appendLog(`[FAIL] Network Error for ${targetEmail}: ${err.message}`, 'red');
+                    appendLog(`[FAIL] Network/Internal Error: ${err.message}`, 'red');
                 }
 
                 document.getElementById('badgeCount').innerText = `${successCount}/${emailsList.length} SENT`;
                 
-                // Rate limit delay
+                // Rate-limiting pause
                 await new Promise(r => setTimeout(r, 400));
             }
 
-            appendLog(`[COMPLETE] Bulk campaign process finished.`, 'yellow');
+            appendLog(`[COMPLETE] Bulk process finished successfully.`, 'yellow');
             btn.disabled = false;
             btn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> START BULK DISPATCH`;
             btn.classList.remove('opacity-50', 'cursor-not-allowed');
@@ -244,7 +247,7 @@ def send_single_email():
         html_body = data.get('html_body', '').strip()
 
         if not api_key or not to_email:
-            return jsonify({"success": False, "error": "Missing API Key or Destination Email"}), 400
+            return jsonify({"success": False, "error": "Missing API Key or Recipient Address"}), 400
 
         formatted_from = f"{from_name} <{from_email}>" if from_name else from_email
 
@@ -267,8 +270,10 @@ def send_single_email():
         if res.status_code in [200, 201]:
             return jsonify({"success": True, "id": res_json.get("id", "N/A")})
         else:
-            error_msg = res_json.get("message") or res_json.get("name") or "Resend API Error"
+            # Clean error string parsing
+            error_msg = res_json.get("message") or res_json.get("name") or "API Dispatch Rejected"
             return jsonify({"success": False, "error": error_msg}), res.status_code
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
