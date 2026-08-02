@@ -15,7 +15,7 @@ ULTIMATE_WHOIS_UI = r"""
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ADVANCED WHOIS & IP AUDIT ENGINE</title>
+  <title>ADVANCED WHOIS, RESPONSIVE & FAVICON AUDITOR</title>
   <!-- html2pdf Library for PDF Export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <style>
@@ -27,6 +27,7 @@ ULTIMATE_WHOIS_UI = r"""
         --neon-cyan: #06b6d4;
         --neon-green: #10b981;
         --neon-red: #ef4444;
+        --neon-amber: #f59e0b;
         --border-color: rgba(6, 182, 212, 0.2);
         --text-bright: #f3f4f6;
         --text-gray: #9ca3af;
@@ -135,7 +136,7 @@ ULTIMATE_WHOIS_UI = r"""
         font-size: 12px;
     }
     .matrix-table th { color: var(--text-gray); padding: 10px; border-bottom: 1px solid var(--border-color); text-align: left; }
-    .matrix-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); word-break: break-all; }
+    .matrix-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); word-break: break-all; vertical-align: middle; }
 
     .terminal-screen {
         background: var(--terminal-bg);
@@ -152,6 +153,28 @@ ULTIMATE_WHOIS_UI = r"""
         white-space: pre-wrap;
     }
 
+    .badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: bold;
+        display: inline-block;
+        text-transform: uppercase;
+    }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: var(--neon-green); border: 1px solid var(--neon-green); }
+    .badge-danger { background: rgba(239, 68, 68, 0.2); color: var(--neon-red); border: 1px solid var(--neon-red); }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--neon-amber); border: 1px solid var(--neon-amber); }
+
+    .favicon-img {
+        width: 24px;
+        height: 24px;
+        vertical-align: middle;
+        margin-right: 8px;
+        border-radius: 4px;
+        background: #fff;
+        padding: 2px;
+    }
+
     .status-footer {
         margin-top: 20px;
         background: var(--panel-bg);
@@ -166,12 +189,12 @@ ULTIMATE_WHOIS_UI = r"""
 <body>
 
     <div class="header-panel">
-        <div class="brand-title">A-Z WHOIS <span>& NETWORK GEOLOCATION AUDITOR</span></div>
-        <div class="brand-sub">Domain Ownership, Server IP, State/City Geolocation, Registrar Logs & PDF Export</div>
+        <div class="brand-title">A-Z WHOIS <span>& ADVANCED DOMAIN AUDITOR</span></div>
+        <div class="brand-sub">WHOIS Lookup, Geolocation, Mobile Responsiveness, Favicon Detector & PDF Export</div>
         
         <div class="input-row">
             <input type="text" id="target_url" class="url-input" placeholder="Enter Domain or IP (e.g. google.com, shikhotech.com or 8.8.8.8)...">
-            <button class="btn-audit" onclick="triggerWhoisAudit()">Lookup WHOIS Data</button>
+            <button class="btn-audit" onclick="triggerWhoisAudit()">Lookup & Audit Target</button>
             <button class="btn-pdf" id="pdf_btn" onclick="exportReportToPDF()">📄 Export PDF Report</button>
         </div>
     </div>
@@ -182,13 +205,13 @@ ULTIMATE_WHOIS_UI = r"""
             
             <!-- Left: Matrix -->
             <div class="panel">
-                <div class="panel-header">🌐 IP & Domain Network Profile</div>
+                <div class="panel-header">🌐 Comprehensive Audit & Network Profile</div>
                 <div class="table-container">
                     <table class="matrix-table">
                         <thead>
                             <tr>
                                 <th>Parameter</th>
-                                <th>Resolved Value</th>
+                                <th>Resolved Status / Value</th>
                             </tr>
                         </thead>
                         <tbody id="matrix_rows">
@@ -221,8 +244,8 @@ ULTIMATE_WHOIS_UI = r"""
             const terminal = document.getElementById('whois_raw_terminal');
             const pdfBtn = document.getElementById('pdf_btn');
             
-            footer.innerText = `📡 Querying WHOIS networks and resolving geolocation for ${target}...`;
-            terminal.innerText = `[CONNECTING] Traversing authoritative WHOIS/RDAP endpoints...`;
+            footer.innerText = `📡 Performing full audit (WHOIS, Responsiveness, Favicon & IP) for ${target}...`;
+            terminal.innerText = `[CONNECTING] Traversing WHOIS endpoints and inspecting HTML frontend assets...`;
             pdfBtn.style.display = "none";
 
             try {
@@ -237,10 +260,22 @@ ULTIMATE_WHOIS_UI = r"""
 
                 currentDomain = data.domain;
 
+                // Responsive Badge Logic
+                let respBadge = data.is_responsive 
+                    ? `<span class="badge badge-success">YES (MOBILE-FRIENDLY)</span>` 
+                    : `<span class="badge badge-danger">NO (NOT RESPONSIVE)</span>`;
+
+                // Favicon Display Logic
+                let faviconHTML = data.favicon_found 
+                    ? `<img src="${data.favicon_url}" class="favicon-img" onerror="this.style.display='none'"> <a href="${data.favicon_url}" target="_blank" style="color:var(--neon-cyan);">${data.favicon_url}</a>`
+                    : `<span class="badge badge-warning">FAVICON NOT DETECTED</span>`;
+
                 // Render Summary Table
                 const tableBody = document.getElementById('matrix_rows');
                 tableBody.innerHTML = `
                     <tr><td style="color:var(--text-gray);">Target Domain</td><td style="font-weight:bold; color:#fff;">${data.domain}</td></tr>
+                    <tr><td style="color:var(--text-gray);">Mobile Responsive Status</td><td>${respBadge}</td></tr>
+                    <tr><td style="color:var(--text-gray);">Favicon Icon</td><td>${faviconHTML}</td></tr>
                     <tr><td style="color:var(--text-gray);">Resolved IP</td><td style="color:var(--neon-cyan); font-weight:bold;">${data.ip}</td></tr>
                     <tr><td style="color:var(--text-gray);">Country / Code</td><td>${data.country} (${data.country_code})</td></tr>
                     <tr><td style="color:var(--text-gray);">State / Region</td><td style="color:var(--neon-green); font-weight:bold;">${data.state}</td></tr>
@@ -256,7 +291,7 @@ ULTIMATE_WHOIS_UI = r"""
                 `;
 
                 terminal.innerText = data.raw_whois;
-                footer.innerText = `✅ WHOIS & Geolocation lookup successfully completed for ${data.domain}`;
+                footer.innerText = `✅ WHOIS, Responsiveness, Favicon & Geolocation audit successfully completed for ${data.domain}`;
                 pdfBtn.style.display = "inline-block";
 
             } catch(err) {
@@ -269,7 +304,7 @@ ULTIMATE_WHOIS_UI = r"""
             const element = document.getElementById('pdf_report_content');
             const opt = {
                 margin:       [0.3, 0.3, 0.3, 0.3],
-                filename:     `WHOIS_Audit_Report_${currentDomain || 'Target'}.pdf`,
+                filename:     `Full_Domain_Audit_${currentDomain || 'Target'}.pdf`,
                 image:        { type: 'jpeg', quality: 0.98 },
                 html2canvas:  { scale: 2, backgroundColor: '#030712' },
                 jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
@@ -294,13 +329,14 @@ def run_whois_lookup():
     # Clean domain string
     raw_target = re.sub(r'^https?://', '', raw_target)
     target_domain = raw_target.split('/')[0].split(':')[0]
+    base_url = f"https://{target_domain}"
 
     # SSL Bypass context for network calls
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
     try:
         # 1. IP Resolution and Ping Latency
@@ -312,7 +348,7 @@ def run_whois_lookup():
             resolved_ip = "Unable to Resolve IP"
             latency = "N/A"
 
-        # 2. IP Geolocation Query (City, State, Country, Lat, Lon, ISP)
+        # 2. IP Geolocation Query
         ip_info = {}
         if resolved_ip != "Unable to Resolve IP":
             try:
@@ -323,14 +359,58 @@ def run_whois_lookup():
             except Exception:
                 pass
 
-        # 3. Robust Multi-Method WHOIS Retrieval
+        # 3. Check Website Responsiveness & Favicon
+        is_responsive = False
+        favicon_found = False
+        favicon_url = ""
+
+        try:
+            req_html = urllib.request.Request(base_url, headers=headers)
+            with urllib.request.urlopen(req_html, context=ctx, timeout=6) as html_resp:
+                html_code = html_resp.read().decode('utf-8', errors='ignore')
+
+                # Check Mobile Responsiveness (Meta Viewport & @media queries)
+                if re.search(r'<meta\s+[^>]*name=["\']viewport["\']', html_code, re.IGNORECASE) or "@media" in html_code:
+                    is_responsive = True
+
+                # Check Favicon Tag in HTML
+                fav_match = re.search(r'<link\s+[^>]*rel=["\'](?:shortcut )?icon["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+                if not fav_match:
+                    fav_match = re.search(r'<link\s+[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\'](?:shortcut )?icon["\']', html_code, re.IGNORECASE)
+
+                if fav_match:
+                    extracted_fav = fav_match.group(1).strip()
+                    if extracted_fav.startswith("//"):
+                        favicon_url = "https:" + extracted_fav
+                    elif extracted_fav.startswith("http"):
+                        favicon_url = extracted_fav
+                    elif extracted_fav.startswith("/"):
+                        favicon_url = f"{base_url}{extracted_fav}"
+                    else:
+                        favicon_url = f"{base_url}/{extracted_fav}"
+                    favicon_found = True
+                else:
+                    # Default fallback favicon check (/favicon.ico)
+                    fallback_fav = f"{base_url}/favicon.ico"
+                    try:
+                        req_fav = urllib.request.Request(fallback_fav, headers=headers)
+                        with urllib.request.urlopen(req_fav, context=ctx, timeout=3) as resp_fav:
+                            if resp_fav.status == 200:
+                                favicon_url = fallback_fav
+                                favicon_found = True
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # 4. Robust Multi-Method WHOIS Retrieval
         registrar = "N/A"
         creation_date = "N/A"
         expiration_date = "N/A"
         nameservers = []
         raw_whois_text = ""
 
-        # Primary Lookup Endpoint (Reliable WHOIS API fallback)
+        # Primary Lookup Endpoint
         try:
             api_url = f"https://api.ip2whois.com/v1?key=free&domain={target_domain}"
             req_api = urllib.request.Request(api_url, headers=headers)
@@ -382,6 +462,9 @@ def run_whois_lookup():
         return jsonify({
             "status": "success",
             "domain": target_domain,
+            "is_responsive": is_responsive,
+            "favicon_found": favicon_found,
+            "favicon_url": favicon_url,
             "ip": resolved_ip,
             "country": ip_info.get("country", "N/A"),
             "country_code": ip_info.get("countryCode", "N/A"),
@@ -403,5 +486,6 @@ def run_whois_lookup():
     except Exception as e:
         return jsonify({
             "status": "error",
-            "message": f"WHOIS process error: {str(e)}"
+            "message": f"Audit process error: {str(e)}"
         })
+
