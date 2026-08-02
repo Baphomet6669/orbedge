@@ -1,5 +1,4 @@
 flask
-math
 requests
 beautifulsoup4
 mysql-connector-python
