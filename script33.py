@@ -15,7 +15,7 @@ ULTIMATE_WHOIS_UI = r"""
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ADVANCED WHOIS, RESPONSIVE & FAVICON AUDITOR</title>
+  <title>ADVANCED OMNI DOMAIN & ASSET AUDITOR</title>
   <!-- html2pdf Library for PDF Export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <style>
@@ -145,7 +145,7 @@ ULTIMATE_WHOIS_UI = r"""
         padding: 15px;
         flex: 1;
         min-height: 480px;
-        max-height: 700px;
+        max-height: 750px;
         overflow-y: auto;
         font-size: 11px;
         line-height: 1.5;
@@ -189,23 +189,23 @@ ULTIMATE_WHOIS_UI = r"""
 <body>
 
     <div class="header-panel">
-        <div class="brand-title">A-Z WHOIS <span>& ADVANCED DOMAIN AUDITOR</span></div>
-        <div class="brand-sub">WHOIS Lookup, Geolocation, Mobile Responsiveness, Favicon Detector & PDF Export</div>
+        <div class="brand-title">A-Z OMNI <span>DOMAIN & ASSET RECON ENGINE</span></div>
+        <div class="brand-sub">WHOIS, Geolocation, Responsive, Favicon, Contact Scraper, Asset Link Extractor & PDF Report</div>
         
         <div class="input-row">
             <input type="text" id="target_url" class="url-input" placeholder="Enter Domain or IP (e.g. google.com, shikhotech.com or 8.8.8.8)...">
-            <button class="btn-audit" onclick="triggerWhoisAudit()">Lookup & Audit Target</button>
+            <button class="btn-audit" onclick="triggerWhoisAudit()">Run 360° Deep Recon</button>
             <button class="btn-pdf" id="pdf_btn" onclick="exportReportToPDF()">📄 Export PDF Report</button>
         </div>
     </div>
 
-    <!-- Container for Export -->
+    <!-- Container for PDF Export -->
     <div id="pdf_report_content">
         <div class="studio-layout">
             
             <!-- Left: Matrix -->
             <div class="panel">
-                <div class="panel-header">🌐 Comprehensive Audit & Network Profile</div>
+                <div class="panel-header">🌐 Network, Contacts & Technical Summary</div>
                 <div class="table-container">
                     <table class="matrix-table">
                         <thead>
@@ -223,7 +223,7 @@ ULTIMATE_WHOIS_UI = r"""
 
             <!-- Right: Raw Log Terminal -->
             <div class="panel">
-                <div class="panel-header">📝 Full Raw WHOIS Record Data</div>
+                <div class="panel-header">📝 Detailed Multi-Vector Audit Logs</div>
                 <div class="terminal-screen" id="whois_raw_terminal">[AWAITING TARGET PAYLOAD]</div>
             </div>
 
@@ -244,8 +244,8 @@ ULTIMATE_WHOIS_UI = r"""
             const terminal = document.getElementById('whois_raw_terminal');
             const pdfBtn = document.getElementById('pdf_btn');
             
-            footer.innerText = `📡 Performing full audit (WHOIS, Responsiveness, Favicon & IP) for ${target}...`;
-            terminal.innerText = `[CONNECTING] Traversing WHOIS endpoints and inspecting HTML frontend assets...`;
+            footer.innerText = `📡 Deep Scanning WHOIS, Contacts, JS/CSS Links & Geolocation for ${target}...`;
+            terminal.innerText = `[INITIALIZING] Scraper handshake active. Parsing domain assets and WHOIS records...`;
             pdfBtn.style.display = "none";
 
             try {
@@ -270,12 +270,30 @@ ULTIMATE_WHOIS_UI = r"""
                     ? `<img src="${data.favicon_url}" class="favicon-img" onerror="this.style.display='none'"> <a href="${data.favicon_url}" target="_blank" style="color:var(--neon-cyan);">${data.favicon_url}</a>`
                     : `<span class="badge badge-warning">FAVICON NOT DETECTED</span>`;
 
+                // Contacts Formatting
+                let emailsFormatted = data.contacts.emails.length > 0 ? data.contacts.emails.join(", ") : "None Detected";
+                let phonesFormatted = data.contacts.phones.length > 0 ? data.contacts.phones.join(", ") : "None Detected";
+                let socialsFormatted = data.contacts.socials.length > 0 ? data.contacts.socials.map(s => `<a href="${s}" target="_blank" style="color:var(--neon-cyan); margin-right:5px;">${new URL(s).hostname}</a>`).join(" | ") : "None Detected";
+
                 // Render Summary Table
                 const tableBody = document.getElementById('matrix_rows');
                 tableBody.innerHTML = `
                     <tr><td style="color:var(--text-gray);">Target Domain</td><td style="font-weight:bold; color:#fff;">${data.domain}</td></tr>
                     <tr><td style="color:var(--text-gray);">Mobile Responsive Status</td><td>${respBadge}</td></tr>
                     <tr><td style="color:var(--text-gray);">Favicon Icon</td><td>${faviconHTML}</td></tr>
+                    
+                    <!-- Extracted Contacts -->
+                    <tr style="background: rgba(6, 182, 212, 0.04);"><td style="color:var(--neon-cyan); font-weight:bold;">Extracted Emails</td><td style="color:var(--neon-green); font-weight:bold;">${emailsFormatted}</td></tr>
+                    <tr style="background: rgba(6, 182, 212, 0.04);"><td style="color:var(--neon-cyan); font-weight:bold;">Extracted Phones</td><td>${phonesFormatted}</td></tr>
+                    <tr style="background: rgba(6, 182, 212, 0.04);"><td style="color:var(--neon-cyan); font-weight:bold;">Social Profiles</td><td>${socialsFormatted}</td></tr>
+
+                    <!-- Asset Link Counts -->
+                    <tr><td style="color:var(--text-gray);">Images Discovered</td><td><span class="badge badge-success">${data.asset_counts.images} Images Found</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">CSS Stylesheets</td><td><span class="badge badge-warning">${data.asset_counts.css} CSS Files Found</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">JavaScript Files</td><td><span class="badge badge-warning">${data.asset_counts.js} JS Scripts Found</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">Internal Web Pages</td><td><span class="badge badge-success">${data.asset_counts.pages} Links Found</span></td></tr>
+
+                    <!-- Geolocation & WHOIS -->
                     <tr><td style="color:var(--text-gray);">Resolved IP</td><td style="color:var(--neon-cyan); font-weight:bold;">${data.ip}</td></tr>
                     <tr><td style="color:var(--text-gray);">Country / Code</td><td>${data.country} (${data.country_code})</td></tr>
                     <tr><td style="color:var(--text-gray);">State / Region</td><td style="color:var(--neon-green); font-weight:bold;">${data.state}</td></tr>
@@ -290,8 +308,8 @@ ULTIMATE_WHOIS_UI = r"""
                     <tr><td style="color:var(--text-gray);">Server Latency</td><td>${data.latency}</td></tr>
                 `;
 
-                terminal.innerText = data.raw_whois;
-                footer.innerText = `✅ WHOIS, Responsiveness, Favicon & Geolocation audit successfully completed for ${data.domain}`;
+                terminal.innerText = data.full_detailed_log;
+                footer.innerText = `✅ WHOIS, Contacts, Assets Extractor & Geolocation completed for ${data.domain}`;
                 pdfBtn.style.display = "inline-block";
 
             } catch(err) {
@@ -331,7 +349,7 @@ def run_whois_lookup():
     target_domain = raw_target.split('/')[0].split(':')[0]
     base_url = f"https://{target_domain}"
 
-    # SSL Bypass context for network calls
+    # SSL Bypass context
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -339,7 +357,7 @@ def run_whois_lookup():
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
     try:
-        # 1. IP Resolution and Ping Latency
+        # 1. IP Resolution & Latency
         start_time = time.time()
         try:
             resolved_ip = socket.gethostbyname(target_domain)
@@ -348,7 +366,7 @@ def run_whois_lookup():
             resolved_ip = "Unable to Resolve IP"
             latency = "N/A"
 
-        # 2. IP Geolocation Query
+        # 2. IP Geolocation (State, City, Country, Lat, Lon, ISP)
         ip_info = {}
         if resolved_ip != "Unable to Resolve IP":
             try:
@@ -359,38 +377,42 @@ def run_whois_lookup():
             except Exception:
                 pass
 
-        # 3. Check Website Responsiveness & Favicon
+        # 3. HTML Scraping for Contacts, Links, CSS, JS, Images, Favicon & Responsiveness
         is_responsive = False
         favicon_found = False
         favicon_url = ""
 
+        emails = set()
+        phones = set()
+        socials = set()
+
+        img_links = []
+        css_links = []
+        js_links = []
+        page_links = []
+
         try:
             req_html = urllib.request.Request(base_url, headers=headers)
-            with urllib.request.urlopen(req_html, context=ctx, timeout=6) as html_resp:
+            with urllib.request.urlopen(req_html, context=ctx, timeout=7) as html_resp:
                 html_code = html_resp.read().decode('utf-8', errors='ignore')
 
-                # Check Mobile Responsiveness (Meta Viewport & @media queries)
+                # Responsive check
                 if re.search(r'<meta\s+[^>]*name=["\']viewport["\']', html_code, re.IGNORECASE) or "@media" in html_code:
                     is_responsive = True
 
-                # Check Favicon Tag in HTML
+                # Favicon Extraction
                 fav_match = re.search(r'<link\s+[^>]*rel=["\'](?:shortcut )?icon["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
                 if not fav_match:
                     fav_match = re.search(r'<link\s+[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\'](?:shortcut )?icon["\']', html_code, re.IGNORECASE)
 
                 if fav_match:
                     extracted_fav = fav_match.group(1).strip()
-                    if extracted_fav.startswith("//"):
-                        favicon_url = "https:" + extracted_fav
-                    elif extracted_fav.startswith("http"):
-                        favicon_url = extracted_fav
-                    elif extracted_fav.startswith("/"):
-                        favicon_url = f"{base_url}{extracted_fav}"
-                    else:
-                        favicon_url = f"{base_url}/{extracted_fav}"
+                    if extracted_fav.startswith("//"): favicon_url = "https:" + extracted_fav
+                    elif extracted_fav.startswith("http"): favicon_url = extracted_fav
+                    elif extracted_fav.startswith("/"): favicon_url = f"{base_url}{extracted_fav}"
+                    else: favicon_url = f"{base_url}/{extracted_fav}"
                     favicon_found = True
                 else:
-                    # Default fallback favicon check (/favicon.ico)
                     fallback_fav = f"{base_url}/favicon.ico"
                     try:
                         req_fav = urllib.request.Request(fallback_fav, headers=headers)
@@ -400,17 +422,70 @@ def run_whois_lookup():
                                 favicon_found = True
                     except Exception:
                         pass
+
+                # --- 4TH FEATURE: CONTACT EXTRACTOR ---
+                # Email Regex Extraction
+                found_emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html_code)
+                for em in found_emails:
+                    if not em.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.svg', '.js')):
+                        emails.add(em.lower())
+
+                # Phone Number Extraction (tel: links & pattern match)
+                tel_matches = re.findall(r'href=["\']tel:([^"\']+)["\']', html_code, re.IGNORECASE)
+                for tm in tel_matches:
+                    phones.add(tm.strip())
+                
+                raw_phones = re.findall(r'\+?\d{1,3}[-.\s]?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', html_code)
+                for ph in raw_phones[:5]:
+                    if len(ph.strip()) >= 10:
+                        phones.add(ph.strip())
+
+                # Social Media Links Extraction
+                social_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com', 'youtube.com', 'github.com', 'telegram.me', 't.me', 'wa.me']
+                all_raw_hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+                for href in all_raw_hrefs:
+                    if any(sd in href.lower() for sd in social_domains):
+                        socials.add(href)
+
+                # --- 5TH FEATURE: ALL ASSET LINKS EXTRACTOR ---
+                # Image Links
+                imgs = re.findall(r'<img\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+                for img in imgs:
+                    img_links.append(urllib.parse.urljoin(base_url, img))
+
+                # CSS Links
+                styles = re.findall(r'<link\s+[^>]*rel=["\']stylesheet["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+                for style in styles:
+                    css_links.append(urllib.parse.urljoin(base_url, style))
+
+                # JS Links
+                scripts = re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+                for sc in scripts:
+                    js_links.append(urllib.parse.urljoin(base_url, sc))
+
+                # Page Links
+                for href in all_raw_hrefs:
+                    if not href.startswith('#') and not href.startswith('javascript:'):
+                        full_link = urllib.parse.urljoin(base_url, href)
+                        if target_domain in full_link:
+                            page_links.append(full_link)
+
         except Exception:
             pass
 
-        # 4. Robust Multi-Method WHOIS Retrieval
+        # De-duplicating Asset Lists
+        img_links = list(set(img_links))
+        css_links = list(set(css_links))
+        js_links = list(set(js_links))
+        page_links = list(set(page_links))
+
+        # 4. WHOIS Data Retrieval
         registrar = "N/A"
         creation_date = "N/A"
         expiration_date = "N/A"
         nameservers = []
         raw_whois_text = ""
 
-        # Primary Lookup Endpoint
         try:
             api_url = f"https://api.ip2whois.com/v1?key=free&domain={target_domain}"
             req_api = urllib.request.Request(api_url, headers=headers)
@@ -425,7 +500,6 @@ def run_whois_lookup():
         except Exception:
             pass
 
-        # Secondary Fallback: RDAP Protocol Routing
         if registrar == "N/A" or not raw_whois_text:
             try:
                 rdap_url = f"https://rdap.org/domain/{target_domain}"
@@ -434,30 +508,55 @@ def run_whois_lookup():
                     rdap_data = json.loads(resp_rdap.read().decode('utf-8'))
                     raw_whois_text = json.dumps(rdap_data, indent=2)
 
-                    # Extract events
                     for ev in rdap_data.get('events', []):
                         action = ev.get('eventAction')
                         date_val = ev.get('eventDate', '').split('T')[0]
                         if action == 'registration': creation_date = date_val
                         elif action == 'expiration': expiration_date = date_val
 
-                    # Extract registrar
                     for ent in rdap_data.get('entities', []):
                         if 'registrar' in ent.get('roles', []):
                             for item in ent.get('vcardArray', [[], []])[1]:
                                 if item[0] == 'fn': registrar = item[3]
 
-                    # Extract Nameservers
                     for ns in rdap_data.get('nameservers', []):
                         if ns.get('ldhName'): nameservers.append(ns.get('ldhName'))
-            except Exception as e:
-                raw_whois_text = f"WHOIS / RDAP Query Log:\n----------------------------------------\n"
-                raw_whois_text += f"Target Domain: {target_domain}\nResolved IP: {resolved_ip}\n"
-                raw_whois_text += f"Location: {ip_info.get('city', 'N/A')}, {ip_info.get('regionName', 'N/A')}, {ip_info.get('country', 'N/A')}\n"
-                raw_whois_text += f"ISP Network: {ip_info.get('isp', 'N/A')}\n"
-                raw_whois_text += f"\nNote: Detailed registrar records for TLD '{target_domain.split('.')[-1]}' are privacy-protected or restricted on public RDAP gateways."
+            except Exception:
+                raw_whois_text = f"WHOIS / RDAP Data for TLD '.{target_domain.split('.')[-1]}' is privacy-protected or restricted."
 
         ns_display = ", ".join(nameservers) if nameservers else "N/A"
+
+        # --- COMPREHENSIVE DETAILED LOG GENERATOR ---
+        full_detailed_log = f"""======================================================================
+🛰️ OMNI RECON REPORT & ASSET AUDIT LOG FOR: {target_domain.upper()}
+======================================================================
+
+📞 1. EXTRACTED CONTACTS & SOCIALS:
+----------------------------------------------------------------------
+  • Emails Found ({len(emails)})    : {', '.join(list(emails)) if emails else 'None'}
+  • Phones Found ({len(phones)})    : {', '.join(list(phones)) if phones else 'None'}
+  • Social Profiles ({len(socials)}):
+{chr(10).join(['     - ' + s for s in list(socials)]) if socials else '     - None Detected'}
+
+🖼️ 2. EXTRACTED FRONTEND ASSET LINKS ({len(img_links)} Images, {len(css_links)} CSS, {len(js_links)} JS, {len(page_links)} Pages):
+----------------------------------------------------------------------
+📄 Top Internal Pages Discovered:
+{chr(10).join(['     - ' + p for p in page_links[:10]]) if page_links else '     - None'}
+
+🎨 CSS Stylesheets ({len(css_links)}):
+{chr(10).join(['     - ' + c for c in css_links[:10]]) if css_links else '     - None'}
+
+📜 JavaScript Files ({len(js_links)}):
+{chr(10).join(['     - ' + j for j in js_links[:10]]) if js_links else '     - None'}
+
+🖼️ Image Asset Assets ({len(img_links)}):
+{chr(10).join(['     - ' + i for i in img_links[:10]]) if img_links else '     - None'}
+
+======================================================================
+🌐 3. GEOLOCATION & WHOIS SERVER RECORD:
+======================================================================
+{raw_whois_text}
+"""
 
         return jsonify({
             "status": "success",
@@ -480,7 +579,18 @@ def run_whois_lookup():
             "expiration_date": expiration_date,
             "nameservers": ns_display,
             "latency": latency,
-            "raw_whois": raw_whois_text
+            "contacts": {
+                "emails": list(emails),
+                "phones": list(phones),
+                "socials": list(socials)
+            },
+            "asset_counts": {
+                "images": len(img_links),
+                "css": len(css_links),
+                "js": len(js_links),
+                "pages": len(page_links)
+            },
+            "full_detailed_log": full_detailed_log
         })
 
     except Exception as e:
