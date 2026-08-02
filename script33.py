@@ -4,6 +4,8 @@ import urllib.parse
 import json
 import socket
 import time
+import ssl
+import re
 
 script33_bp = Blueprint('script33', __name__)
 
@@ -133,7 +135,7 @@ ULTIMATE_WHOIS_UI = r"""
         font-size: 12px;
     }
     .matrix-table th { color: var(--text-gray); padding: 10px; border-bottom: 1px solid var(--border-color); text-align: left; }
-    .matrix-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .matrix-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); word-break: break-all; }
 
     .terminal-screen {
         background: var(--terminal-bg);
@@ -168,17 +170,17 @@ ULTIMATE_WHOIS_UI = r"""
         <div class="brand-sub">Domain Ownership, Server IP, State/City Geolocation, Registrar Logs & PDF Export</div>
         
         <div class="input-row">
-            <input type="text" id="target_url" class="url-input" placeholder="Enter Domain or IP (e.g. example.com or 8.8.8.8)...">
+            <input type="text" id="target_url" class="url-input" placeholder="Enter Domain or IP (e.g. google.com, shikhotech.com or 8.8.8.8)...">
             <button class="btn-audit" onclick="triggerWhoisAudit()">Lookup WHOIS Data</button>
             <button class="btn-pdf" id="pdf_btn" onclick="exportReportToPDF()">📄 Export PDF Report</button>
         </div>
     </div>
 
-    <!-- Wrap Content for PDF Exporting -->
+    <!-- Container for Export -->
     <div id="pdf_report_content">
         <div class="studio-layout">
             
-            <!-- Left: Quick Summary Matrix -->
+            <!-- Left: Matrix -->
             <div class="panel">
                 <div class="panel-header">🌐 IP & Domain Network Profile</div>
                 <div class="table-container">
@@ -196,9 +198,9 @@ ULTIMATE_WHOIS_UI = r"""
                 </div>
             </div>
 
-            <!-- Right: Detailed WHOIS Raw Terminal -->
+            <!-- Right: Raw Log Terminal -->
             <div class="panel">
-                <div class="panel-header">📝 Full Raw WHOIS Record & Server Headers</div>
+                <div class="panel-header">📝 Full Raw WHOIS Record Data</div>
                 <div class="terminal-screen" id="whois_raw_terminal">[AWAITING TARGET PAYLOAD]</div>
             </div>
 
@@ -219,8 +221,8 @@ ULTIMATE_WHOIS_UI = r"""
             const terminal = document.getElementById('whois_raw_terminal');
             const pdfBtn = document.getElementById('pdf_btn');
             
-            footer.innerText = `📡 Fetching WHOIS data & Geolocation for ${target}...`;
-            terminal.innerText = `[CONNECTING] Querying RDAP and WHOIS registries...`;
+            footer.innerText = `📡 Querying WHOIS networks and resolving geolocation for ${target}...`;
+            terminal.innerText = `[CONNECTING] Traversing authoritative WHOIS/RDAP endpoints...`;
             pdfBtn.style.display = "none";
 
             try {
@@ -235,21 +237,22 @@ ULTIMATE_WHOIS_UI = r"""
 
                 currentDomain = data.domain;
 
-                // Render Table Matrix
+                // Render Summary Table
                 const tableBody = document.getElementById('matrix_rows');
                 tableBody.innerHTML = `
                     <tr><td style="color:var(--text-gray);">Target Domain</td><td style="font-weight:bold; color:#fff;">${data.domain}</td></tr>
                     <tr><td style="color:var(--text-gray);">Resolved IP</td><td style="color:var(--neon-cyan); font-weight:bold;">${data.ip}</td></tr>
-                    <tr><td style="color:var(--text-gray);">Country / Flag</td><td>${data.country} (${data.country_code})</td></tr>
+                    <tr><td style="color:var(--text-gray);">Country / Code</td><td>${data.country} (${data.country_code})</td></tr>
                     <tr><td style="color:var(--text-gray);">State / Region</td><td style="color:var(--neon-green); font-weight:bold;">${data.state}</td></tr>
-                    <tr><td style="color:var(--text-gray);">City</td><td>${data.city} (Postal: ${data.zip})</td></tr>
-                    <tr><td style="color:var(--text-gray);">ISP / Host</td><td>${data.isp}</td></tr>
-                    <tr><td style="color:var(--text-gray);">Organization</td><td>${data.org}</td></tr>
+                    <tr><td style="color:var(--text-gray);">City</td><td>${data.city} (PIN/ZIP: ${data.zip})</td></tr>
+                    <tr><td style="color:var(--text-gray);">Latitude / Longitude</td><td>${data.lat} , ${data.lon}</td></tr>
+                    <tr><td style="color:var(--text-gray);">ISP / Network Host</td><td>${data.isp}</td></tr>
+                    <tr><td style="color:var(--text-gray);">Organization Owner</td><td>${data.org}</td></tr>
                     <tr><td style="color:var(--text-gray);">Registrar Name</td><td>${data.registrar}</td></tr>
                     <tr><td style="color:var(--text-gray);">Creation Date</td><td>${data.creation_date}</td></tr>
                     <tr><td style="color:var(--text-gray);">Expiration Date</td><td style="color:var(--neon-red);">${data.expiration_date}</td></tr>
                     <tr><td style="color:var(--text-gray);">Name Servers</td><td>${data.nameservers}</td></tr>
-                    <tr><td style="color:var(--text-gray);">Server Response Latency</td><td>${data.latency}</td></tr>
+                    <tr><td style="color:var(--text-gray);">Server Latency</td><td>${data.latency}</td></tr>
                 `;
 
                 terminal.innerText = data.raw_whois;
@@ -257,7 +260,7 @@ ULTIMATE_WHOIS_UI = r"""
                 pdfBtn.style.display = "inline-block";
 
             } catch(err) {
-                terminal.innerText = `[CRITICAL ERROR] Failed to perform WHOIS lookup.`;
+                terminal.innerText = `[CRITICAL ERROR] Execution pipeline timed out or failed.`;
                 footer.innerText = `❌ Execution Fault.`;
             }
         }
@@ -266,7 +269,7 @@ ULTIMATE_WHOIS_UI = r"""
             const element = document.getElementById('pdf_report_content');
             const opt = {
                 margin:       [0.3, 0.3, 0.3, 0.3],
-                filename:     `WHOIS_Report_${currentDomain || 'Audit'}.pdf`,
+                filename:     `WHOIS_Audit_Report_${currentDomain || 'Target'}.pdf`,
                 image:        { type: 'jpeg', quality: 0.98 },
                 html2canvas:  { scale: 2, backgroundColor: '#030712' },
                 jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
@@ -286,14 +289,21 @@ def index():
 def run_whois_lookup():
     raw_target = request.args.get('target', '').strip()
     if not raw_target:
-        return jsonify({"status": "error", "message": "No target specified."})
+        return jsonify({"status": "error", "message": "No target provided."})
 
-    # Cleaning target domain/URL
+    # Clean domain string
     raw_target = re.sub(r'^https?://', '', raw_target)
     target_domain = raw_target.split('/')[0].split(':')[0]
 
+    # SSL Bypass context for network calls
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
     try:
-        # 1. Resolve IP Address & Measure Ping/Latency
+        # 1. IP Resolution and Ping Latency
         start_time = time.time()
         try:
             resolved_ip = socket.gethostbyname(target_domain)
@@ -302,63 +312,70 @@ def run_whois_lookup():
             resolved_ip = "Unable to Resolve IP"
             latency = "N/A"
 
-        # 2. Fetch Detailed IP & Location Data (City, State, Country, ISP)
+        # 2. IP Geolocation Query (City, State, Country, Lat, Lon, ISP)
         ip_info = {}
         if resolved_ip != "Unable to Resolve IP":
             try:
-                geo_req = urllib.request.Request(f"http://ip-api.com/json/{resolved_ip}?fields=status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query")
-                with urllib.request.urlopen(geo_req, timeout=5) as resp:
+                geo_url = f"http://ip-api.com/json/{resolved_ip}?fields=status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query"
+                req_geo = urllib.request.Request(geo_url, headers=headers)
+                with urllib.request.urlopen(req_geo, timeout=5) as resp:
                     ip_info = json.loads(resp.read().decode('utf-8'))
             except Exception:
                 pass
 
-        # 3. Query RDAP / WHOIS Data from Global Registry
-        rdap_data = {}
-        raw_whois_text = "WHOIS Record Log:\n----------------------------------------\n"
-        try:
-            rdap_req = urllib.request.Request(f"https://rdap.org/domain/{target_domain}", headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(rdap_req, timeout=6) as rdap_resp:
-                rdap_data = json.loads(rdap_resp.read().decode('utf-8'))
-                raw_whois_text += json.dumps(rdap_data, indent=2)
-        except Exception as e:
-            raw_whois_text += f"\n[RDAP Fetch Fallback Note]: {str(e)}\n"
-            raw_whois_text += f"\nDomain: {target_domain}\nResolved IP: {resolved_ip}\n"
-            raw_whois_text += f"Geolocation: {ip_info.get('city', 'N/A')}, {ip_info.get('regionName', 'N/A')}, {ip_info.get('country', 'N/A')}\n"
-
-        # Parsing RDAP WHOIS attributes
+        # 3. Robust Multi-Method WHOIS Retrieval
         registrar = "N/A"
         creation_date = "N/A"
         expiration_date = "N/A"
         nameservers = []
+        raw_whois_text = ""
 
-        if rdap_data:
-            # Events parsing (Registration/Expiration)
-            events = rdap_data.get('events', [])
-            for ev in events:
-                action = ev.get('eventAction')
-                date_str = ev.get('eventDate', '').split('T')[0]
-                if action == 'registration':
-                    creation_date = date_str
-                elif action == 'expiration':
-                    expiration_date = date_str
+        # Primary Lookup Endpoint (Reliable WHOIS API fallback)
+        try:
+            api_url = f"https://api.ip2whois.com/v1?key=free&domain={target_domain}"
+            req_api = urllib.request.Request(api_url, headers=headers)
+            with urllib.request.urlopen(req_api, context=ctx, timeout=6) as resp_api:
+                data_api = json.loads(resp_api.read().decode('utf-8'))
+                if "registrar" in data_api:
+                    registrar = data_api.get("registrar", {}).get("name", "N/A")
+                    creation_date = data_api.get("create_date", "N/A")
+                    expiration_date = data_api.get("expire_date", "N/A")
+                    nameservers = data_api.get("nameservers", [])
+                    raw_whois_text = json.dumps(data_api, indent=2)
+        except Exception:
+            pass
 
-            # Entities (Registrar)
-            entities = rdap_data.get('entities', [])
-            for ent in entities:
-                roles = ent.get('roles', [])
-                if 'registrar' in roles:
-                    vcard = ent.get('vcardArray', [])
-                    if len(vcard) > 1:
-                        for item in vcard[1]:
-                            if item[0] == 'fn':
-                                registrar = item[3]
+        # Secondary Fallback: RDAP Protocol Routing
+        if registrar == "N/A" or not raw_whois_text:
+            try:
+                rdap_url = f"https://rdap.org/domain/{target_domain}"
+                req_rdap = urllib.request.Request(rdap_url, headers=headers)
+                with urllib.request.urlopen(req_rdap, context=ctx, timeout=6) as resp_rdap:
+                    rdap_data = json.loads(resp_rdap.read().decode('utf-8'))
+                    raw_whois_text = json.dumps(rdap_data, indent=2)
 
-            # Nameservers
-            ns_list = rdap_data.get('nameservers', [])
-            for ns in ns_list:
-                ns_name = ns.get('ldhName')
-                if ns_name:
-                    nameservers.append(ns_name)
+                    # Extract events
+                    for ev in rdap_data.get('events', []):
+                        action = ev.get('eventAction')
+                        date_val = ev.get('eventDate', '').split('T')[0]
+                        if action == 'registration': creation_date = date_val
+                        elif action == 'expiration': expiration_date = date_val
+
+                    # Extract registrar
+                    for ent in rdap_data.get('entities', []):
+                        if 'registrar' in ent.get('roles', []):
+                            for item in ent.get('vcardArray', [[], []])[1]:
+                                if item[0] == 'fn': registrar = item[3]
+
+                    # Extract Nameservers
+                    for ns in rdap_data.get('nameservers', []):
+                        if ns.get('ldhName'): nameservers.append(ns.get('ldhName'))
+            except Exception as e:
+                raw_whois_text = f"WHOIS / RDAP Query Log:\n----------------------------------------\n"
+                raw_whois_text += f"Target Domain: {target_domain}\nResolved IP: {resolved_ip}\n"
+                raw_whois_text += f"Location: {ip_info.get('city', 'N/A')}, {ip_info.get('regionName', 'N/A')}, {ip_info.get('country', 'N/A')}\n"
+                raw_whois_text += f"ISP Network: {ip_info.get('isp', 'N/A')}\n"
+                raw_whois_text += f"\nNote: Detailed registrar records for TLD '{target_domain.split('.')[-1]}' are privacy-protected or restricted on public RDAP gateways."
 
         ns_display = ", ".join(nameservers) if nameservers else "N/A"
 
@@ -371,6 +388,8 @@ def run_whois_lookup():
             "state": ip_info.get("regionName", "N/A"),
             "city": ip_info.get("city", "N/A"),
             "zip": ip_info.get("zip", "N/A"),
+            "lat": ip_info.get("lat", "N/A"),
+            "lon": ip_info.get("lon", "N/A"),
             "isp": ip_info.get("isp", "N/A"),
             "org": ip_info.get("org", "N/A"),
             "registrar": registrar,
@@ -384,6 +403,5 @@ def run_whois_lookup():
     except Exception as e:
         return jsonify({
             "status": "error",
-            "message": f"WHOIS lookup failed. Details: {str(e)}"
+            "message": f"WHOIS process error: {str(e)}"
         })
-
