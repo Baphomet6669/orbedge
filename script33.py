@@ -161,9 +161,18 @@ ULTIMATE_WHOIS_UI = r"""
         display: inline-block;
         text-transform: uppercase;
     }
+    .badge-interactive {
+        cursor: pointer;
+        transition: transform 0.1s, filter 0.2s;
+    }
+    .badge-interactive:hover {
+        filter: brightness(1.3);
+        transform: scale(1.03);
+    }
     .badge-success { background: rgba(16, 185, 129, 0.2); color: var(--neon-green); border: 1px solid var(--neon-green); }
     .badge-danger { background: rgba(239, 68, 68, 0.2); color: var(--neon-red); border: 1px solid var(--neon-red); }
     .badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--neon-amber); border: 1px solid var(--neon-amber); }
+    .badge-info { background: rgba(6, 182, 212, 0.2); color: var(--neon-cyan); border: 1px solid var(--neon-cyan); }
 
     .favicon-img {
         width: 24px;
@@ -184,13 +193,64 @@ ULTIMATE_WHOIS_UI = r"""
         font-size: 11px;
         color: var(--text-gray);
     }
+
+    /* Interactive Links Modal Styling */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.85);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+    }
+    .modal-box {
+        background: var(--panel-bg);
+        border: 1px solid var(--neon-cyan);
+        width: 80%;
+        max-width: 800px;
+        max-height: 80vh;
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+    }
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 10px;
+    }
+    .modal-title { font-size: 14px; font-weight: bold; color: var(--neon-cyan); }
+    .modal-close {
+        background: var(--neon-red);
+        color: #fff;
+        border: none;
+        padding: 4px 10px;
+        font-weight: bold;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .modal-body {
+        overflow-y: auto;
+        flex: 1;
+        font-size: 11px;
+        background: var(--terminal-bg);
+        padding: 10px;
+        border-radius: 4px;
+    }
+    .modal-body a { color: var(--neon-green); word-break: break-all; display: block; margin-bottom: 6px; text-decoration: none; }
+    .modal-body a:hover { text-decoration: underline; color: var(--neon-cyan); }
   </style>
 </head>
 <body>
 
     <div class="header-panel">
         <div class="brand-title">A-Z OMNI <span>DOMAIN & ASSET RECON ENGINE</span></div>
-        <div class="brand-sub">WHOIS, Geolocation, Responsive, Favicon, Contact Scraper, Asset Link Extractor & PDF Report</div>
+        <div class="brand-sub">WHOIS, Geolocation, Responsive, Favicon, Contacts, Asset Category Extraction & PDF Export</div>
         
         <div class="input-row">
             <input type="text" id="target_url" class="url-input" placeholder="Enter Domain or IP (e.g. google.com, shikhotech.com or 8.8.8.8)...">
@@ -205,13 +265,13 @@ ULTIMATE_WHOIS_UI = r"""
             
             <!-- Left: Matrix -->
             <div class="panel">
-                <div class="panel-header">🌐 Network, Contacts & Technical Summary</div>
+                <div class="panel-header">🌐 Network, Contacts & Categorized Asset Matrix</div>
                 <div class="table-container">
                     <table class="matrix-table">
                         <thead>
                             <tr>
-                                <th>Parameter</th>
-                                <th>Resolved Status / Value</th>
+                                <th>Parameter / Asset Type</th>
+                                <th>Resolved Status / Click to View Links</th>
                             </tr>
                         </thead>
                         <tbody id="matrix_rows">
@@ -230,10 +290,24 @@ ULTIMATE_WHOIS_UI = r"""
         </div>
     </div>
 
+    <!-- Modal Window for Interactive Asset Link Lists -->
+    <div class="modal-overlay" id="assetModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Extracted Links List</div>
+                <button class="modal-close" onclick="closeModal()">X</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Dynamic links rendered here -->
+            </div>
+        </div>
+    </div>
+
     <div class="status-footer" id="footer_log">Engine Ready.</div>
 
     <script>
         let currentDomain = "";
+        let extractedAssetStore = {};
 
         async function triggerWhoisAudit() {
             const inputField = document.getElementById('target_url');
@@ -244,7 +318,7 @@ ULTIMATE_WHOIS_UI = r"""
             const terminal = document.getElementById('whois_raw_terminal');
             const pdfBtn = document.getElementById('pdf_btn');
             
-            footer.innerText = `📡 Deep Scanning WHOIS, Contacts, JS/CSS Links & Geolocation for ${target}...`;
+            footer.innerText = `📡 Deep Scanning WHOIS, Contacts, Categorized Links & Assets for ${target}...`;
             terminal.innerText = `[INITIALIZING] Scraper handshake active. Parsing domain assets and WHOIS records...`;
             pdfBtn.style.display = "none";
 
@@ -259,6 +333,7 @@ ULTIMATE_WHOIS_UI = r"""
                 }
 
                 currentDomain = data.domain;
+                extractedAssetStore = data.assets; // Save categorized asset lists
 
                 // Responsive Badge Logic
                 let respBadge = data.is_responsive 
@@ -287,11 +362,13 @@ ULTIMATE_WHOIS_UI = r"""
                     <tr style="background: rgba(6, 182, 212, 0.04);"><td style="color:var(--neon-cyan); font-weight:bold;">Extracted Phones</td><td>${phonesFormatted}</td></tr>
                     <tr style="background: rgba(6, 182, 212, 0.04);"><td style="color:var(--neon-cyan); font-weight:bold;">Social Profiles</td><td>${socialsFormatted}</td></tr>
 
-                    <!-- Asset Link Counts -->
-                    <tr><td style="color:var(--text-gray);">Images Discovered</td><td><span class="badge badge-success">${data.asset_counts.images} Images Found</span></td></tr>
-                    <tr><td style="color:var(--text-gray);">CSS Stylesheets</td><td><span class="badge badge-warning">${data.asset_counts.css} CSS Files Found</span></td></tr>
-                    <tr><td style="color:var(--text-gray);">JavaScript Files</td><td><span class="badge badge-warning">${data.asset_counts.js} JS Scripts Found</span></td></tr>
-                    <tr><td style="color:var(--text-gray);">Internal Web Pages</td><td><span class="badge badge-success">${data.asset_counts.pages} Links Found</span></td></tr>
+                    <!-- Categorized Asset & Link Counts (Interactive) -->
+                    <tr><td style="color:var(--text-gray);">Internal Domain Links</td><td><span class="badge badge-info badge-interactive" onclick="viewCategoryLinks('internal')">🔗 ${data.asset_counts.internal} Internal Links (Click to View)</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">External Domain Links</td><td><span class="badge badge-warning badge-interactive" onclick="viewCategoryLinks('external')">🌐 ${data.asset_counts.external} External Links (Click to View)</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">CSS Stylesheets</td><td><span class="badge badge-warning badge-interactive" onclick="viewCategoryLinks('css')">🎨 ${data.asset_counts.css} CSS Files (Click to View)</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">JavaScript Files</td><td><span class="badge badge-warning badge-interactive" onclick="viewCategoryLinks('js')">📜 ${data.asset_counts.js} JS Scripts (Click to View)</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">Images Asset Links</td><td><span class="badge badge-success badge-interactive" onclick="viewCategoryLinks('images')">🖼️ ${data.asset_counts.images} Images (Click to View)</span></td></tr>
+                    <tr><td style="color:var(--text-gray);">WOFF / Font Assets</td><td><span class="badge badge-info badge-interactive" onclick="viewCategoryLinks('fonts')">🔤 ${data.asset_counts.fonts} Fonts Discovered (Click to View)</span></td></tr>
 
                     <!-- Geolocation & WHOIS -->
                     <tr><td style="color:var(--text-gray);">Resolved IP</td><td style="color:var(--neon-cyan); font-weight:bold;">${data.ip}</td></tr>
@@ -309,13 +386,35 @@ ULTIMATE_WHOIS_UI = r"""
                 `;
 
                 terminal.innerText = data.full_detailed_log;
-                footer.innerText = `✅ WHOIS, Contacts, Assets Extractor & Geolocation completed for ${data.domain}`;
+                footer.innerText = `✅ WHOIS, Contacts, Categorized Asset Extractor & Geolocation completed for ${data.domain}`;
                 pdfBtn.style.display = "inline-block";
 
             } catch(err) {
                 terminal.innerText = `[CRITICAL ERROR] Execution pipeline timed out or failed.`;
                 footer.innerText = `❌ Execution Fault.`;
             }
+        }
+
+        // Interactive Modal Function for Viewing Asset Category Links
+        function viewCategoryLinks(categoryKey) {
+            const modal = document.getElementById('assetModal');
+            const title = document.getElementById('modalTitle');
+            const body = document.getElementById('modalBody');
+
+            const links = extractedAssetStore[categoryKey] || [];
+            title.innerText = `Extracted ${categoryKey.toUpperCase()} Assets / Links (${links.length} Found)`;
+
+            if (links.length === 0) {
+                body.innerHTML = `<div style="color: var(--text-gray); text-align: center; padding: 20px;">No links found in this category.</div>`;
+            } else {
+                body.innerHTML = links.map((link, idx) => `<a href="${link}" target="_blank" rel="noopener noreferrer">${idx + 1}. ${link}</a>`).join('');
+            }
+
+            modal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('assetModal').style.display = 'none';
         }
 
         function exportReportToPDF() {
@@ -377,7 +476,7 @@ def run_whois_lookup():
             except Exception:
                 pass
 
-        # 3. HTML Scraping for Contacts, Links, CSS, JS, Images, Favicon & Responsiveness
+        # 3. HTML Scraping for Contacts, Favicon, Responsiveness & Categorized Assets
         is_responsive = False
         favicon_found = False
         favicon_url = ""
@@ -386,10 +485,12 @@ def run_whois_lookup():
         phones = set()
         socials = set()
 
-        img_links = []
-        css_links = []
-        js_links = []
-        page_links = []
+        internal_links = set()
+        external_links = set()
+        css_links = set()
+        js_links = set()
+        img_links = set()
+        font_links = set()
 
         try:
             req_html = urllib.request.Request(base_url, headers=headers)
@@ -407,10 +508,7 @@ def run_whois_lookup():
 
                 if fav_match:
                     extracted_fav = fav_match.group(1).strip()
-                    if extracted_fav.startswith("//"): favicon_url = "https:" + extracted_fav
-                    elif extracted_fav.startswith("http"): favicon_url = extracted_fav
-                    elif extracted_fav.startswith("/"): favicon_url = f"{base_url}{extracted_fav}"
-                    else: favicon_url = f"{base_url}/{extracted_fav}"
+                    favicon_url = urllib.parse.urljoin(base_url, extracted_fav)
                     favicon_found = True
                 else:
                     fallback_fav = f"{base_url}/favicon.ico"
@@ -423,14 +521,12 @@ def run_whois_lookup():
                     except Exception:
                         pass
 
-                # --- 4TH FEATURE: CONTACT EXTRACTOR ---
-                # Email Regex Extraction
+                # --- CONTACT EXTRACTOR ---
                 found_emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html_code)
                 for em in found_emails:
-                    if not em.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.svg', '.js')):
+                    if not em.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.svg', '.js', '.css', '.woff', '.woff2')):
                         emails.add(em.lower())
 
-                # Phone Number Extraction (tel: links & pattern match)
                 tel_matches = re.findall(r'href=["\']tel:([^"\']+)["\']', html_code, re.IGNORECASE)
                 for tm in tel_matches:
                     phones.add(tm.strip())
@@ -440,44 +536,61 @@ def run_whois_lookup():
                     if len(ph.strip()) >= 10:
                         phones.add(ph.strip())
 
-                # Social Media Links Extraction
                 social_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com', 'youtube.com', 'github.com', 'telegram.me', 't.me', 'wa.me']
-                all_raw_hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                for href in all_raw_hrefs:
-                    if any(sd in href.lower() for sd in social_domains):
-                        socials.add(href)
 
-                # --- 5TH FEATURE: ALL ASSET LINKS EXTRACTOR ---
-                # Image Links
-                imgs = re.findall(r'<img\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                for img in imgs:
-                    img_links.append(urllib.parse.urljoin(base_url, img))
+                # --- CATEGORIZED LINK & ASSET SCRAPING ---
+                # All hrefs
+                all_hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+                for href in all_hrefs:
+                    href_str = href.strip()
+                    if not href_str or href_str.startswith('#') or href_str.startswith('javascript:'):
+                        continue
 
-                # CSS Links
-                styles = re.findall(r'<link\s+[^>]*rel=["\']stylesheet["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                for style in styles:
-                    css_links.append(urllib.parse.urljoin(base_url, style))
+                    full_url = urllib.parse.urljoin(base_url, href_str)
 
-                # JS Links
+                    # Check for Socials
+                    if any(sd in full_url.lower() for sd in social_domains):
+                        socials.add(full_url)
+
+                    # Categorize CSS
+                    if '.css' in full_url.lower():
+                        css_links.add(full_url)
+                    # Categorize Fonts
+                    elif any(ft in full_url.lower() for ft in ['.woff', '.woff2', '.ttf', '.eot', '.otf']):
+                        font_links.add(full_url)
+                    # Categorize Page Links (Internal vs External)
+                    else:
+                        parsed_link = urllib.parse.urlparse(full_url)
+                        if target_domain in parsed_link.netloc:
+                            internal_links.add(full_url)
+                        elif parsed_link.netloc:
+                            external_links.add(full_url)
+
+                # Script srcs (JS)
                 scripts = re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
                 for sc in scripts:
-                    js_links.append(urllib.parse.urljoin(base_url, sc))
+                    js_links.add(urllib.parse.urljoin(base_url, sc))
 
-                # Page Links
-                for href in all_raw_hrefs:
-                    if not href.startswith('#') and not href.startswith('javascript:'):
-                        full_link = urllib.parse.urljoin(base_url, href)
-                        if target_domain in full_link:
-                            page_links.append(full_link)
+                # Image srcs
+                imgs = re.findall(r'<img\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+                for img in imgs:
+                    img_links.add(urllib.parse.urljoin(base_url, img))
+
+                # Additional WOFF / Font Srcs inside inline CSS or src attributes
+                fonts_in_src = re.findall(r'url\(["\']?([^"\'\)]+\.(?:woff2?|ttf|eot|otf))["\']?\)', html_code, re.IGNORECASE)
+                for fn in fonts_in_src:
+                    font_links.add(urllib.parse.urljoin(base_url, fn))
 
         except Exception:
             pass
 
-        # De-duplicating Asset Lists
-        img_links = list(set(img_links))
-        css_links = list(set(css_links))
-        js_links = list(set(js_links))
-        page_links = list(set(page_links))
+        # Convert sets to sorted lists
+        internal_list = sorted(list(internal_links))
+        external_list = sorted(list(external_links))
+        css_list = sorted(list(css_links))
+        js_list = sorted(list(js_links))
+        img_list = sorted(list(img_links))
+        font_list = sorted(list(font_links))
 
         # 4. WHOIS Data Retrieval
         registrar = "N/A"
@@ -538,19 +651,25 @@ def run_whois_lookup():
   • Social Profiles ({len(socials)}):
 {chr(10).join(['     - ' + s for s in list(socials)]) if socials else '     - None Detected'}
 
-🖼️ 2. EXTRACTED FRONTEND ASSET LINKS ({len(img_links)} Images, {len(css_links)} CSS, {len(js_links)} JS, {len(page_links)} Pages):
+🖼️ 2. CATEGORIZED ASSET BREAKDOWN:
 ----------------------------------------------------------------------
-📄 Top Internal Pages Discovered:
-{chr(10).join(['     - ' + p for p in page_links[:10]]) if page_links else '     - None'}
+🔗 Internal Domain Links ({len(internal_list)}):
+{chr(10).join(['     - ' + p for p in internal_list[:10]]) if internal_list else '     - None'}
 
-🎨 CSS Stylesheets ({len(css_links)}):
-{chr(10).join(['     - ' + c for c in css_links[:10]]) if css_links else '     - None'}
+🌐 External Domain Links ({len(external_list)}):
+{chr(10).join(['     - ' + e for e in external_list[:10]]) if external_list else '     - None'}
 
-📜 JavaScript Files ({len(js_links)}):
-{chr(10).join(['     - ' + j for j in js_links[:10]]) if js_links else '     - None'}
+🎨 CSS Stylesheets ({len(css_list)}):
+{chr(10).join(['     - ' + c for c in css_list[:10]]) if css_list else '     - None'}
 
-🖼️ Image Asset Assets ({len(img_links)}):
-{chr(10).join(['     - ' + i for i in img_links[:10]]) if img_links else '     - None'}
+📜 JavaScript Files ({len(js_list)}):
+{chr(10).join(['     - ' + j for j in js_list[:10]]) if js_list else '     - None'}
+
+🖼️ Image Assets ({len(img_list)}):
+{chr(10).join(['     - ' + i for i in img_list[:10]]) if img_list else '     - None'}
+
+🔤 WOFF / Font Assets ({len(font_list)}):
+{chr(10).join(['     - ' + f for f in font_list[:10]]) if font_list else '     - None'}
 
 ======================================================================
 🌐 3. GEOLOCATION & WHOIS SERVER RECORD:
@@ -585,10 +704,20 @@ def run_whois_lookup():
                 "socials": list(socials)
             },
             "asset_counts": {
-                "images": len(img_links),
-                "css": len(css_links),
-                "js": len(js_links),
-                "pages": len(page_links)
+                "internal": len(internal_list),
+                "external": len(external_list),
+                "css": len(css_list),
+                "js": len(js_list),
+                "images": len(img_list),
+                "fonts": len(font_list)
+            },
+            "assets": {
+                "internal": internal_list,
+                "external": external_list,
+                "css": css_list,
+                "js": js_list,
+                "images": img_list,
+                "fonts": font_list
             },
             "full_detailed_log": full_detailed_log
         })
