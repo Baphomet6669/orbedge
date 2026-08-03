@@ -507,13 +507,24 @@ def run_whois_lookup():
     # Clean domain string
     raw_target = re.sub(r'^https?://', '', raw_target)
     target_domain = raw_target.split('/')[0].split(':')[0]
-    base_url = f"https://{target_domain}"
 
+    # SSL context bypass for bad/expired cert site scraping
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    # Advanced Browser User-Agent to bypass Cloudflare / Bot blocks
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive'
+    }
+
+    # Helper function to fetch URL with fallback
+    def fetch_url_data(url, timeout=8):
+        req = urllib.request.Request(url, headers=headers)
+        return urllib.request.urlopen(req, context=ctx, timeout=timeout)
 
     try:
         # 1. Measure Website Load Speed & IP Resolution
@@ -557,7 +568,7 @@ def run_whois_lookup():
                 geo_url = f"http://ip-api.com/json/{resolved_ip}?fields=status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query"
                 req_geo = urllib.request.Request(geo_url, headers=headers)
                 with urllib.request.urlopen(req_geo, timeout=5) as resp:
-                    ip_info = json.loads(resp.read().decode('utf-8'))
+                    ip_info = json.loads(resp.read().decode('utf-8', errors='ignore'))
             except Exception:
                 pass
 
@@ -579,82 +590,90 @@ def run_whois_lookup():
 
         manifest_info = {"found": False, "url": "", "raw_code": ""}
 
-        try:
-            req_html = urllib.request.Request(base_url, headers=headers)
-            with urllib.request.urlopen(req_html, context=ctx, timeout=8) as html_resp:
-                load_speed_ms = round((time.time() - start_speed_time) * 1000, 2)
-                load_speed_sec = round(load_speed_ms / 1000, 2)
+        load_speed_ms = 0
+        load_speed_sec = 0
 
-                html_code = html_resp.read().decode('utf-8', errors='ignore')
+        # Attempt HTTPS first, fallback to HTTP if site rejects HTTPS
+        target_schemes = [f"https://{target_domain}", f"http://{target_domain}"]
+        html_code = ""
+        base_url = f"https://{target_domain}"
 
-                # Responsive check
-                if re.search(r'<meta\s+[^>]*name=["\']viewport["\']', html_code, re.IGNORECASE) or "@media" in html_code:
-                    is_responsive = True
+        for try_url in target_schemes:
+            try:
+                with fetch_url_data(try_url, timeout=10) as html_resp:
+                    load_speed_ms = round((time.time() - start_speed_time) * 1000, 2)
+                    load_speed_sec = round(load_speed_ms / 1000, 2)
+                    base_url = html_resp.geturl() # Get final URL after redirects
+                    html_code = html_resp.read().decode('utf-8', errors='ignore')
+                    if html_code:
+                        break
+            except Exception:
+                continue
 
-                # Favicon Extraction
-                fav_match = re.search(r'<link\s+[^>]*rel=["\'](?:shortcut )?icon["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                if not fav_match:
-                    fav_match = re.search(r'<link\s+[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\'](?:shortcut )?icon["\']', html_code, re.IGNORECASE)
+        if html_code:
+            # Responsive check
+            if re.search(r'<meta\s+[^>]*name=["\']viewport["\']', html_code, re.IGNORECASE) or "@media" in html_code:
+                is_responsive = True
 
-                if fav_match:
-                    favicon_url = urllib.parse.urljoin(base_url, fav_match.group(1).strip())
-                    favicon_found = True
+            # Favicon Extraction
+            fav_match = re.search(r'<link\s+[^>]*rel=["\'](?:shortcut )?icon["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+            if not fav_match:
+                fav_match = re.search(r'<link\s+[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\'](?:shortcut )?icon["\']', html_code, re.IGNORECASE)
 
-                # Manifest File Check
-                manifest_match = re.search(r'<link\s+[^>]*rel=["\']manifest["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                if manifest_match:
-                    manifest_url = urllib.parse.urljoin(base_url, manifest_match.group(1).strip())
-                    manifest_info["found"] = True
-                    manifest_info["url"] = manifest_url
-                    try:
-                        req_m = urllib.request.Request(manifest_url, headers=headers)
-                        with urllib.request.urlopen(req_m, context=ctx, timeout=4) as resp_m:
-                            m_code = resp_m.read().decode('utf-8', errors='ignore')
-                            try:
-                                manifest_info["raw_code"] = json.dumps(json.loads(m_code), indent=2)
-                            except Exception:
-                                manifest_info["raw_code"] = m_code
-                    except Exception as me:
-                        manifest_info["raw_code"] = f"Failed to fetch manifest content: {str(me)}"
+            if fav_match:
+                favicon_url = urllib.parse.urljoin(base_url, fav_match.group(1).strip())
+                favicon_found = True
 
-                # Contact Extractor
-                found_emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html_code)
-                for em in found_emails:
-                    if not em.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.svg', '.js', '.css', '.woff', '.woff2')):
-                        emails.add(em.lower())
+            # Manifest File Check
+            manifest_match = re.search(r'<link\s+[^>]*rel=["\']manifest["\'][^>]*href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+            if manifest_match:
+                manifest_url = urllib.parse.urljoin(base_url, manifest_match.group(1).strip())
+                manifest_info["found"] = True
+                manifest_info["url"] = manifest_url
+                try:
+                    with fetch_url_data(manifest_url, timeout=5) as resp_m:
+                        m_code = resp_m.read().decode('utf-8', errors='ignore')
+                        try:
+                            manifest_info["raw_code"] = json.dumps(json.loads(m_code), indent=2)
+                        except Exception:
+                            manifest_info["raw_code"] = m_code
+                except Exception as me:
+                    manifest_info["raw_code"] = f"Failed to fetch manifest content: {str(me)}"
 
-                tel_matches = re.findall(r'href=["\']tel:([^"\']+)["\']', html_code, re.IGNORECASE)
-                for tm in tel_matches: phones.add(tm.strip())
+            # Contact Extractor
+            found_emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html_code)
+            for em in found_emails:
+                if not em.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.svg', '.js', '.css', '.woff', '.woff2')):
+                    emails.add(em.lower())
 
-                social_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com', 'youtube.com', 'github.com', 'telegram.me', 't.me', 'wa.me']
+            tel_matches = re.findall(r'href=["\']tel:([^"\']+)["\']', html_code, re.IGNORECASE)
+            for tm in tel_matches: phones.add(tm.strip())
 
-                # Categorized Links
-                all_hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                for href in all_hrefs:
-                    href_str = href.strip()
-                    if not href_str or href_str.startswith('#') or href_str.startswith('javascript:'): continue
+            social_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com', 'youtube.com', 'github.com', 'telegram.me', 't.me', 'wa.me']
 
-                    full_url = urllib.parse.urljoin(base_url, href_str)
-                    if any(sd in full_url.lower() for sd in social_domains): socials.add(full_url)
+            # Categorized Links
+            all_hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+            for href in all_hrefs:
+                href_str = href.strip()
+                if not href_str or href_str.startswith('#') or href_str.startswith('javascript:'): continue
 
-                    if '.css' in full_url.lower(): css_links.add(full_url)
-                    elif any(ft in full_url.lower() for ft in ['.woff', '.woff2', '.ttf', '.eot']): font_links.add(full_url)
-                    else:
-                        parsed_link = urllib.parse.urlparse(full_url)
-                        if target_domain in parsed_link.netloc: internal_links.add(full_url)
-                        elif parsed_link.netloc: external_links.add(full_url)
+                full_url = urllib.parse.urljoin(base_url, href_str)
+                if any(sd in full_url.lower() for sd in social_domains): socials.add(full_url)
 
-                # Script srcs
-                scripts = re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                for sc in scripts: js_links.add(urllib.parse.urljoin(base_url, sc))
+                if '.css' in full_url.lower(): css_links.add(full_url)
+                elif any(ft in full_url.lower() for ft in ['.woff', '.woff2', '.ttf', '.eot']): font_links.add(full_url)
+                else:
+                    parsed_link = urllib.parse.urlparse(full_url)
+                    if target_domain in parsed_link.netloc: internal_links.add(full_url)
+                    elif parsed_link.netloc: external_links.add(full_url)
 
-                # Image srcs
-                imgs = re.findall(r'<img\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
-                for img in imgs: img_links.add(urllib.parse.urljoin(base_url, img))
+            # Script srcs
+            scripts = re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+            for sc in scripts: js_links.add(urllib.parse.urljoin(base_url, sc))
 
-        except Exception:
-            load_speed_ms = 0
-            load_speed_sec = 0
+            # Image srcs
+            imgs = re.findall(r'<img\s+[^>]*src=["\']([^"\']+)["\']', html_code, re.IGNORECASE)
+            for img in imgs: img_links.add(urllib.parse.urljoin(base_url, img))
 
         internal_list = sorted(list(internal_links))
         external_list = sorted(list(external_links))
@@ -686,7 +705,7 @@ def run_whois_lookup():
             api_url = f"https://api.ip2whois.com/v1?key=free&domain={target_domain}"
             req_api = urllib.request.Request(api_url, headers=headers)
             with urllib.request.urlopen(req_api, context=ctx, timeout=6) as resp_api:
-                data_api = json.loads(resp_api.read().decode('utf-8'))
+                data_api = json.loads(resp_api.read().decode('utf-8', errors='ignore'))
                 if "registrar" in data_api:
                     registrar = data_api.get("registrar", {}).get("name", "N/A")
                     creation_date = data_api.get("create_date", "N/A")
@@ -701,7 +720,7 @@ def run_whois_lookup():
                 rdap_url = f"https://rdap.org/domain/{target_domain}"
                 req_rdap = urllib.request.Request(rdap_url, headers=headers)
                 with urllib.request.urlopen(req_rdap, context=ctx, timeout=6) as resp_rdap:
-                    rdap_data = json.loads(resp_rdap.read().decode('utf-8'))
+                    rdap_data = json.loads(resp_rdap.read().decode('utf-8', errors='ignore'))
                     raw_whois_text = json.dumps(rdap_data, indent=2)
 
                     for ev in rdap_data.get('events', []):
